@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env*.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Next.js
+.next/
+out/
+
+# Runtime data
+tmp/
+temp/
+.cache/
+.turbo/
+
+# Prisma generated client
+packages/db/generated/
+
+# Editors and OS metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

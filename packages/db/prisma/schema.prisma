@@ -1,0 +1,359 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Platform {
+  EMAIL
+  SLACK
+}
+
+enum IntegrationStatus {
+  PENDING
+  CONNECTED
+  SYNCING
+  ERROR
+  DISCONNECTED
+}
+
+enum WorkspaceUserRole {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum ConversationState {
+  UNASSIGNED
+  ACTIVE
+  WAITING
+  FOLLOW_UP_DUE
+  AWAITING_APPROVAL
+  ESCALATED
+  COMPLETED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+enum MessageStatus {
+  RECEIVED
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum SenderType {
+  EXTERNAL
+  USER
+  AGENT
+  SYSTEM
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ActorType {
+  USER
+  AGENT
+  SYSTEM
+  INTEGRATION
+}
+
+model Workspace {
+  id            String        @id @default(uuid())
+  name          String
+  settingsJson  Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  users         User[]
+  integrations  Integration[]
+  conversations Conversation[]
+  participants  Participant[]
+  messages      Message[]
+  attachments   Attachment[]
+  agentAssignments AgentAssignment[]
+  approvalRequests ApprovalRequest[]
+  actionLogs    ActionLog[]
+  conversationFacts ConversationFact[]
+}
+
+model User {
+  id            String            @id @default(uuid())
+  workspaceId   String
+  email         String
+  name          String?
+  role          WorkspaceUserRole @default(MEMBER)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  assignedAgentAssignments AgentAssignment[] @relation("AgentAssignedByUser")
+  reviewedApprovalRequests ApprovalRequest[] @relation("ApprovalReviewedByUser")
+  actionLogs    ActionLog[]       @relation("ActionActorUser")
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
+}
+
+model Integration {
+  id                   String            @id @default(uuid())
+  workspaceId          String
+  platform             Platform
+  displayName          String?
+  externalAccountId    String?
+  authType             String?
+  status               IntegrationStatus @default(PENDING)
+  lastSyncedAt         DateTime?
+  configJson           Json?
+  platformMetadataJson Json?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  deletedAt            DateTime?
+
+  workspace            Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations        Conversation[]
+
+  @@unique([workspaceId, platform, externalAccountId])
+  @@index([workspaceId, status])
+  @@index([workspaceId, platform])
+}
+
+model Conversation {
+  id                   String            @id @default(uuid())
+  workspaceId          String
+  integrationId        String
+  platform             Platform
+  externalConversationId String
+  subject              String?
+  state                ConversationState @default(UNASSIGNED)
+  assignedAgentId      String?
+  lastMessageAt        DateTime?
+  openedAt             DateTime?
+  closedAt             DateTime?
+  platformMetadataJson Json?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  deletedAt            DateTime?
+
+  workspace            Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration          Integration       @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  participants         Participant[]
+  messages             Message[]
+  approvalRequests     ApprovalRequest[]
+  actionLogs           ActionLog[]
+  conversationFacts    ConversationFact[]
+  agentAssignments     AgentAssignment[] @relation("ConversationAgentAssignments")
+  assignedAgent        AgentAssignment?  @relation("ConversationCurrentAssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+
+  @@unique([integrationId, externalConversationId])
+  @@index([workspaceId, state, lastMessageAt])
+  @@index([integrationId])
+  @@index([platform])
+  @@index([assignedAgentId])
+  @@index([lastMessageAt])
+}
+
+model Participant {
+  id                   String       @id @default(uuid())
+  workspaceId          String
+  conversationId       String
+  platform             Platform
+  externalParticipantId String?
+  displayName          String?
+  email                String?
+  handle               String?
+  isInternal           Boolean      @default(false)
+  rawPayloadJson       Json?
+  platformMetadataJson Json?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  workspace            Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation         Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sentMessages         Message[]    @relation("MessageSenderParticipant")
+
+  @@index([workspaceId])
+  @@index([conversationId, externalParticipantId])
+}
+
+model Message {
+  id                   String           @id @default(uuid())
+  workspaceId          String
+  conversationId       String
+  platform             Platform
+  externalMessageId    String?
+  senderParticipantId  String?
+  senderType           SenderType
+  direction            MessageDirection
+  bodyText             String?
+  bodyHtml             String?
+  status               MessageStatus
+  sentAt               DateTime?
+  receivedAt           DateTime?
+  rawPayloadJson       Json?
+  platformMetadataJson Json?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  deletedAt            DateTime?
+
+  workspace            Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation         Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderParticipant    Participant?     @relation("MessageSenderParticipant", fields: [senderParticipantId], references: [id], onDelete: SetNull)
+
+  attachments          Attachment[]
+  approvalRequests     ApprovalRequest[] @relation("ApprovalDraftMessage")
+  actionLogs           ActionLog[]
+  conversationFacts    ConversationFact[]
+
+  @@unique([conversationId, externalMessageId])
+  @@index([conversationId, createdAt])
+  @@index([workspaceId, status])
+  @@index([workspaceId, direction])
+  @@index([senderParticipantId])
+  @@index([externalMessageId])
+}
+
+model Attachment {
+  id                   String       @id @default(uuid())
+  workspaceId          String
+  messageId            String
+  platform             Platform
+  externalAttachmentId String?
+  fileName             String
+  mimeType             String?
+  sizeBytes            Int?
+  storageKey           String?
+  externalUrl          String?
+  platformMetadataJson Json?
+  createdAt            DateTime     @default(now())
+  deletedAt            DateTime?
+
+  workspace            Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  message              Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([messageId])
+}
+
+model AgentAssignment {
+  id                   String       @id @default(uuid())
+  workspaceId          String
+  conversationId       String
+  goal                 String
+  instructions         String?
+  tone                 String?
+  allowedActionsJson   Json?
+  escalationRulesJson  Json?
+  assignedByUserId     String?
+  isActive             Boolean      @default(true)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  endedAt              DateTime?
+
+  workspace            Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation         Conversation @relation("ConversationAgentAssignments", fields: [conversationId], references: [id], onDelete: Cascade)
+  assignedByUser       User?        @relation("AgentAssignedByUser", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  currentForConversations Conversation[] @relation("ConversationCurrentAssignedAgent")
+  approvalRequests     ApprovalRequest[]
+  actionLogs           ActionLog[]  @relation("ActionActorAgentAssignment")
+
+  @@index([workspaceId, isActive])
+  @@index([conversationId, isActive])
+}
+
+model ApprovalRequest {
+  id                         String         @id @default(uuid())
+  workspaceId                String
+  conversationId             String
+  draftMessageId             String
+  proposedByAgentAssignmentId String?
+  status                     ApprovalStatus @default(PENDING)
+  reviewedByUserId           String?
+  reviewedAt                 DateTime?
+  rejectionReason            String?
+  editedContent              String?
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
+
+  workspace                  Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation               Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  draftMessage               Message        @relation("ApprovalDraftMessage", fields: [draftMessageId], references: [id], onDelete: Cascade)
+  proposedByAgentAssignment  AgentAssignment? @relation(fields: [proposedByAgentAssignmentId], references: [id], onDelete: SetNull)
+  reviewedByUser             User?          @relation("ApprovalReviewedByUser", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  actionLogs                 ActionLog[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([conversationId])
+  @@index([draftMessageId])
+}
+
+model ActionLog {
+  id                      String       @id @default(uuid())
+  workspaceId             String
+  conversationId          String
+  messageId               String?
+  approvalRequestId       String?
+  actorType               ActorType
+  actorUserId             String?
+  actorAgentAssignmentId  String?
+  actionType              String
+  metadataJson            Json?
+  createdAt               DateTime     @default(now())
+
+  workspace               Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation            Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message                 Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  approvalRequest         ApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: SetNull)
+  actorUser               User?        @relation("ActionActorUser", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorAgentAssignment    AgentAssignment? @relation("ActionActorAgentAssignment", fields: [actorAgentAssignmentId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, conversationId, createdAt])
+  @@index([messageId])
+  @@index([approvalRequestId])
+}
+
+model ConversationFact {
+  id                String       @id @default(uuid())
+  workspaceId       String
+  conversationId    String
+  sourceMessageId   String?
+  key               String
+  valueText         String
+  confidence        Float?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  workspace         Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sourceMessage     Message?     @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, conversationId])
+  @@index([conversationId, key])
+  @@index([sourceMessageId])
+}

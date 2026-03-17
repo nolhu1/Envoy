@@ -1,0 +1,21 @@
+{
+  "name": "@envoy/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.5.0",
+    "@prisma/client": "^7.5.0",
+    "dotenv": "^17.3.1",
+    "pg": "^8.20.0",
+    "prisma": "^7.5.0"
+  },
+  "scripts": {
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "seed": "tsx prisma/seed.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}
