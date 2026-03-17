@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@envoy/db": ["../../packages/db/src/index.ts"]
     }
   },
   "include": [
