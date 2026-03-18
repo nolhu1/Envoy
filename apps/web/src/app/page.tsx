@@ -28,6 +28,12 @@ export default async function HomePage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <Link
+              href="/profile"
+              className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
+            >
+              Profile
+            </Link>
+            <Link
               href="/members"
               className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
             >

@@ -55,6 +55,12 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
               Home
             </Link>
             <Link
+              href="/profile"
+              className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
+            >
+              Profile
+            </Link>
+            <Link
               href="/settings/workspace"
               className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
             >
