@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 
 type SignInPageProps = {
   searchParams?: Promise<{
+    accepted?: string;
+    email?: string;
     registered?: string;
   }>;
 };
@@ -21,6 +23,8 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   }
 
   const params = searchParams ? await searchParams : undefined;
+  const accepted = params?.accepted === "1";
+  const acceptedEmail = params?.email;
   const registered = params?.registered === "1";
 
   return (
@@ -51,6 +55,13 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             {registered ? (
               <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 Account created. You can sign in now.
+              </p>
+            ) : null}
+
+            {accepted ? (
+              <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                Invite accepted{acceptedEmail ? ` for ${acceptedEmail}` : ""}. Sign
+                in with your new password.
               </p>
             ) : null}
 

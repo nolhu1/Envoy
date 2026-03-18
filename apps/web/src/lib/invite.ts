@@ -3,6 +3,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 
 import { getPrisma } from "@envoy/db";
+import { hash } from "bcryptjs";
 
 import { getCurrentAppAuthContext, requireAppAuthContext } from "@/lib/app-auth";
 import type { AppUserRole } from "@/lib/auth-types";
@@ -28,6 +29,21 @@ function createInviteToken() {
   return randomBytes(24).toString("hex");
 }
 
+function getInviteStateError(invite: {
+  acceptedAt: Date | null;
+  expiresAt: Date;
+}) {
+  if (invite.acceptedAt) {
+    return "This invite has already been accepted.";
+  }
+
+  if (invite.expiresAt <= new Date()) {
+    return "This invite has expired.";
+  }
+
+  return null;
+}
+
 export async function createInviteInCurrentWorkspace({
   email,
   role,
@@ -46,16 +62,21 @@ export async function createInviteInCurrentWorkspace({
 
   const prisma = getPrisma();
 
-  const existingUser = await prisma.user.findFirst({
+  const existingUser = await prisma.user.findUnique({
     where: {
-      workspaceId: authContext.workspaceId,
       email: normalizedEmail,
     },
-    select: { id: true },
+    select: { id: true, workspaceId: true },
   });
 
   if (existingUser) {
-    throw new Error("That user is already a member of this workspace.");
+    if (existingUser.workspaceId === authContext.workspaceId) {
+      throw new Error("That user is already a member of this workspace.");
+    }
+
+    throw new Error(
+      "That email already belongs to an existing Envoy account and cannot be invited into another workspace in the current MVP model.",
+    );
   }
 
   const existingPendingInvite = await prisma.workspaceInvitation.findFirst({
@@ -169,14 +190,109 @@ export async function validateInviteToken(token: string) {
       return null;
     }
 
-    if (invite.acceptedAt) {
-      return null;
-    }
-
-    if (invite.expiresAt <= new Date()) {
+    if (getInviteStateError(invite)) {
       return null;
     }
 
     return invite;
+  });
+}
+
+type AcceptInviteInput = {
+  token: string;
+  name?: string | null;
+  password: string;
+};
+
+export async function acceptInvite({
+  token,
+  name,
+  password,
+}: AcceptInviteInput) {
+  const normalizedToken = token.trim();
+  const normalizedName = name?.trim() || null;
+
+  if (!normalizedToken) {
+    throw new Error("Invite token is required.");
+  }
+
+  if (!password || password.length < 8) {
+    throw new Error("Password must be at least 8 characters.");
+  }
+
+  const prisma = getPrisma();
+  const passwordHash = await hash(password, 12);
+
+  return prisma.$transaction(async (tx) => {
+    const invite = await tx.workspaceInvitation.findUnique({
+      where: {
+        token: normalizedToken,
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        email: true,
+        role: true,
+        acceptedAt: true,
+        expiresAt: true,
+      },
+    });
+
+    if (!invite) {
+      throw new Error("This invite is invalid.");
+    }
+
+    const inviteStateError = getInviteStateError(invite);
+
+    if (inviteStateError) {
+      throw new Error(inviteStateError);
+    }
+
+    const existingUser = await tx.user.findUnique({
+      where: {
+        email: invite.email,
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+      },
+    });
+
+    if (existingUser) {
+      if (existingUser.workspaceId === invite.workspaceId) {
+        throw new Error(
+          "An account for this invite email already exists. Sign in instead.",
+        );
+      }
+
+      throw new Error("This email is already in use by another account.");
+    }
+
+    const user = await tx.user.create({
+      data: {
+        workspaceId: invite.workspaceId,
+        email: invite.email,
+        name: normalizedName,
+        role: invite.role,
+        passwordHash,
+      },
+      select: {
+        id: true,
+        email: true,
+        workspaceId: true,
+        role: true,
+      },
+    });
+
+    await tx.workspaceInvitation.update({
+      where: {
+        id: invite.id,
+      },
+      data: {
+        acceptedAt: new Date(),
+      },
+    });
+
+    return user;
   });
 }
