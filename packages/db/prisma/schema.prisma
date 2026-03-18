@@ -88,6 +88,7 @@ model Workspace {
   updatedAt     DateTime      @updatedAt
 
   users         User[]
+  invitations   WorkspaceInvitation[]
   integrations  Integration[]
   conversations Conversation[]
   participants  Participant[]
@@ -113,12 +114,32 @@ model User {
 
   accounts      Account[]
   assignedAgentAssignments AgentAssignment[] @relation("AgentAssignedByUser")
+  createdWorkspaceInvitations WorkspaceInvitation[] @relation("WorkspaceInvitationInvitedByUser")
   reviewedApprovalRequests ApprovalRequest[] @relation("ApprovalReviewedByUser")
   actionLogs    ActionLog[]       @relation("ActionActorUser")
   sessions      Session[]
 
   @@unique([workspaceId, email])
   @@index([workspaceId])
+}
+
+model WorkspaceInvitation {
+  id              String            @id @default(uuid())
+  workspaceId     String
+  email           String
+  role            WorkspaceUserRole @default(MEMBER)
+  token           String            @unique
+  invitedByUserId String
+  acceptedAt      DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime          @default(now())
+
+  workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedByUser   User              @relation("WorkspaceInvitationInvitedByUser", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, email])
+  @@index([token])
 }
 
 model Account {
