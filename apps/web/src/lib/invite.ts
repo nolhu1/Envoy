@@ -5,8 +5,10 @@ import { randomBytes } from "node:crypto";
 import { getPrisma } from "@envoy/db";
 import { hash } from "bcryptjs";
 
-import { getCurrentAppAuthContext, requireAppAuthContext } from "@/lib/app-auth";
+import { getCurrentAppAuthContext } from "@/lib/app-auth";
 import type { AppUserRole } from "@/lib/auth-types";
+import { PERMISSIONS } from "@/lib/permissions";
+import { requireAuthenticatedEntryPoint } from "@/lib/workspace-guards";
 
 const INVITE_TTL_DAYS = 7;
 
@@ -48,7 +50,9 @@ export async function createInviteInCurrentWorkspace({
   email,
   role,
 }: CreateWorkspaceInviteInput) {
-  const authContext = await requireAppAuthContext();
+  const authContext = await requireAuthenticatedEntryPoint({
+    permission: PERMISSIONS.CREATE_INVITES,
+  });
 
   const normalizedEmail = normalizeInviteEmail(email);
 

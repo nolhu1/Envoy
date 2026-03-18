@@ -5,7 +5,6 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { createInviteInCurrentWorkspace } from "@/lib/invite";
 import type { AppUserRole } from "@/lib/auth-types";
-import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 
 function toInviteErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -26,7 +25,6 @@ export async function createInviteAction(formData: FormData) {
       : "MEMBER";
 
   try {
-    await requirePermission(PERMISSIONS.CREATE_INVITES);
     await createInviteInCurrentWorkspace({ email, role });
     redirect("/members?invite=created");
   } catch (error) {
