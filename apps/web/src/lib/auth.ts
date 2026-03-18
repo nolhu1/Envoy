@@ -2,17 +2,10 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { compare } from "bcryptjs";
 import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth";
-import type { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { redirect } from "next/navigation";
 
 import { getPrisma } from "@envoy/db";
-import type { AppUserRole } from "@/lib/auth-types";
-
-type AppToken = JWT & {
-  role?: AppUserRole;
-  workspaceId?: string;
-};
+import type { AppJwt, AppUserRole } from "@/lib/auth-types";
 
 export function getAuthOptions(): NextAuthOptions {
   const prisma = getPrisma();
@@ -74,7 +67,7 @@ export function getAuthOptions(): NextAuthOptions {
     ],
     callbacks: {
       jwt({ token, user }) {
-        const nextToken = token as AppToken;
+        const nextToken = token as typeof token & AppJwt;
 
         if (user) {
           const appUser = user as typeof user & {
@@ -89,7 +82,7 @@ export function getAuthOptions(): NextAuthOptions {
         return nextToken;
       },
       session({ session, token }) {
-        const appToken = token as AppToken;
+        const appToken = token as typeof token & AppJwt;
         const sessionUser = session.user;
 
         if (!sessionUser?.email) {
@@ -124,14 +117,4 @@ export function getAuthOptions(): NextAuthOptions {
 
 export function getServerAuthSession() {
   return getServerSession(getAuthOptions());
-}
-
-export async function requireUser() {
-  const session = await getServerAuthSession();
-
-  if (!session?.user) {
-    redirect("/sign-in");
-  }
-
-  return session.user;
 }

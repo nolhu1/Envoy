@@ -4,6 +4,7 @@ import { hash } from "bcryptjs";
 import { redirect } from "next/navigation";
 
 import { getPrisma } from "@envoy/db";
+import { createWorkspaceForSignedUpUser } from "@/lib/workspace";
 
 export type SignUpState = {
   error?: string;
@@ -43,19 +44,10 @@ export async function signUp(
 
   const passwordHash = await hash(password, 12);
 
-  await prisma.workspace.create({
-    data: {
-      // Phase D2 cleanup: replace this temporary workspace bootstrap path.
-      name: name ? `${name}'s Workspace` : `${email}'s Workspace`,
-      users: {
-        create: {
-          email,
-          name: name || null,
-          role: "ADMIN",
-          passwordHash,
-        },
-      },
-    },
+  await createWorkspaceForSignedUpUser({
+    email,
+    name: name || null,
+    passwordHash,
   });
 
   redirect("/sign-in?registered=1");
