@@ -1,6 +1,10 @@
 import Link from "next/link";
 
-import { PERMISSIONS, requirePermission } from "@/lib/permissions";
+import {
+  hasPermission,
+  PERMISSIONS,
+  requirePermission,
+} from "@/lib/permissions";
 import { getCurrentWorkspace } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +12,10 @@ export const dynamic = "force-dynamic";
 export default async function WorkspaceSettingsPage() {
   const authContext = await requirePermission(
     PERMISSIONS.VIEW_WORKSPACE_SETTINGS,
+  );
+  const canManageIntegrations = hasPermission(
+    authContext.role,
+    PERMISSIONS.CONNECT_INTEGRATIONS,
   );
   const workspace = await getCurrentWorkspace();
 
@@ -106,6 +114,24 @@ export default async function WorkspaceSettingsPage() {
             </p>
           </section>
         )}
+
+        {canManageIntegrations ? (
+          <section className="mt-8 rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
+              Admin Management
+            </p>
+            <h2 className="mt-3 text-xl font-semibold text-slate-950">
+              Integrations and workspace management
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
+              This section is reserved for future admin-only integrations and
+              workspace management controls.
+            </p>
+            <div className="mt-6 inline-flex rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700">
+              Integrations management coming soon
+            </div>
+          </section>
+        ) : null}
       </div>
     </main>
   );

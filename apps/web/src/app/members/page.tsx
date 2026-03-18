@@ -20,12 +20,14 @@ type MembersPageProps = {
 
 export default async function MembersPage({ searchParams }: MembersPageProps) {
   const authContext = await requirePermission(PERMISSIONS.VIEW_MEMBERS);
-  const canCreateInvites = hasPermission(
+  const canManageInvites = hasPermission(
     authContext.role,
     PERMISSIONS.CREATE_INVITES,
   );
   const members = await getCurrentWorkspaceMembers();
-  const invites = await listInvitesForCurrentWorkspace();
+  const invites = canManageInvites
+    ? await listInvitesForCurrentWorkspace()
+    : [];
   const params = searchParams ? await searchParams : undefined;
   const errorMessage = params?.error;
   const inviteCreated = params?.invite === "created";
@@ -102,7 +104,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
             </div>
           </div>
 
-          {canCreateInvites ? (
+          {canManageInvites ? (
             <form action={createInviteAction} className="mt-6 grid gap-4 md:grid-cols-[1.4fr_0.8fr_auto]">
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-700">Email</span>
@@ -187,7 +189,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
           </section>
         )}
 
-        {invites.length > 0 ? (
+        {canManageInvites && invites.length > 0 ? (
           <section className="mt-8 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
             <div className="grid grid-cols-[1.5fr_0.8fr_1fr_1fr] gap-4 border-b border-slate-200 bg-slate-50 px-6 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               <span>Email</span>
@@ -226,7 +228,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
               ))}
             </div>
           </section>
-        ) : (
+        ) : canManageInvites ? (
           <section className="mt-8 rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
               No Pending Invites
@@ -235,7 +237,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
               This workspace does not have any pending invites yet.
             </p>
           </section>
-        )}
+        ) : null}
       </div>
     </main>
   );
