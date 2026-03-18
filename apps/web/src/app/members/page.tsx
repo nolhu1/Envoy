@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireAppAuthContext } from "@/lib/app-auth";
 import { createInviteAction } from "@/app/members/actions";
 import { listInvitesForCurrentWorkspace } from "@/lib/invite";
+import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getCurrentWorkspaceMembers } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,10 @@ type MembersPageProps = {
 
 export default async function MembersPage({ searchParams }: MembersPageProps) {
   const authContext = await requireAppAuthContext();
+  const canCreateInvites = hasPermission(
+    authContext.role,
+    PERMISSIONS.CREATE_INVITES,
+  );
   const members = await getCurrentWorkspaceMembers();
   const invites = await listInvitesForCurrentWorkspace();
   const params = searchParams ? await searchParams : undefined;
@@ -94,7 +99,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
             </div>
           </div>
 
-          {authContext.role === "ADMIN" ? (
+          {canCreateInvites ? (
             <form action={createInviteAction} className="mt-6 grid gap-4 md:grid-cols-[1.4fr_0.8fr_auto]">
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-700">Email</span>
@@ -131,7 +136,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
             </form>
           ) : (
             <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Only admins can create workspace invites.
+              You do not have permission to create workspace invites.
             </p>
           )}
         </section>

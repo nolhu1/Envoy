@@ -50,10 +50,6 @@ export async function createInviteInCurrentWorkspace({
 }: CreateWorkspaceInviteInput) {
   const authContext = await requireAppAuthContext();
 
-  if (authContext.role !== "ADMIN") {
-    throw new Error("Only admins can create invites.");
-  }
-
   const normalizedEmail = normalizeInviteEmail(email);
 
   if (!normalizedEmail) {
