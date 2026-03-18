@@ -1,12 +1,14 @@
 import Link from "next/link";
 
-import { requireAppAuthContext } from "@/lib/app-auth";
+import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 import { getCurrentWorkspace } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function WorkspaceSettingsPage() {
-  const authContext = await requireAppAuthContext();
+  const authContext = await requirePermission(
+    PERMISSIONS.VIEW_WORKSPACE_SETTINGS,
+  );
   const workspace = await getCurrentWorkspace();
 
   return (

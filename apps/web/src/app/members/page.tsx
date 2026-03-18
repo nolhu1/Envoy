@@ -1,9 +1,12 @@
 import Link from "next/link";
 
-import { requireAppAuthContext } from "@/lib/app-auth";
 import { createInviteAction } from "@/app/members/actions";
 import { listInvitesForCurrentWorkspace } from "@/lib/invite";
-import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import {
+  hasPermission,
+  PERMISSIONS,
+  requirePermission,
+} from "@/lib/permissions";
 import { getCurrentWorkspaceMembers } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +19,7 @@ type MembersPageProps = {
 };
 
 export default async function MembersPage({ searchParams }: MembersPageProps) {
-  const authContext = await requireAppAuthContext();
+  const authContext = await requirePermission(PERMISSIONS.VIEW_MEMBERS);
   const canCreateInvites = hasPermission(
     authContext.role,
     PERMISSIONS.CREATE_INVITES,
