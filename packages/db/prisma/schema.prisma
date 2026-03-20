@@ -89,6 +89,7 @@ model Workspace {
 
   users         User[]
   invitations   WorkspaceInvitation[]
+  connectorSecrets ConnectorSecret[]
   integrations  Integration[]
   conversations Conversation[]
   participants  Participant[]
@@ -197,11 +198,32 @@ model Integration {
   deletedAt            DateTime?
 
   workspace            Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectorSecrets     ConnectorSecret[]
   conversations        Conversation[]
 
   @@unique([workspaceId, platform, externalAccountId])
   @@index([workspaceId, status])
   @@index([workspaceId, platform])
+}
+
+model ConnectorSecret {
+  id               String      @id @default(uuid())
+  workspaceId      String
+  integrationId    String?
+  secretType       String
+  secretRef        String      @unique @default(cuid())
+  encryptedPayload String      @db.Text
+  version          Int         @default(1)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  revokedAt        DateTime?
+
+  workspace        Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration      Integration? @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, secretType])
+  @@index([workspaceId, integrationId])
+  @@index([workspaceId, revokedAt])
 }
 
 model Conversation {
