@@ -15,6 +15,21 @@ export {
   GmailConnector,
 } from "./gmail";
 export {
+  GMAIL_OAUTH_ACCESS_TYPE,
+  GMAIL_OAUTH_AUTH_BASE_URL,
+  GMAIL_OAUTH_DEFAULT_STATE_TTL_SECONDS,
+  GMAIL_OAUTH_INCLUDE_GRANTED_SCOPES,
+  GMAIL_OAUTH_PROMPT,
+  GMAIL_OAUTH_RESPONSE_TYPE,
+  buildGmailAuthorizationUrl,
+  createGmailOAuthStatePayload,
+  decodeAndVerifyGmailOAuthState,
+  decodeVerifyAndValidateGmailOAuthState,
+  getGmailOAuthConfig,
+  signAndEncodeGmailOAuthState,
+  validateGmailOAuthStatePayload,
+} from "./gmail-oauth";
+export {
   DEDUPE_STATUSES,
   INBOUND_SOURCE_TYPES,
   INBOUND_STAGES,
@@ -54,6 +69,12 @@ export type {
   GmailOAuthConnectCredentialInput,
   GmailProviderPayloadPlaceholder,
 } from "./gmail";
+export type {
+  GmailAuthorizationUrlInput,
+  GmailAuthorizationUrlResult,
+  GmailOAuthConfig,
+  GmailOAuthStatePayload,
+} from "./gmail-oauth";
 export type {
   ApiKeyAuthMaterial,
   AuthMaterialType,
