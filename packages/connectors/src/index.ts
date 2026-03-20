@@ -20,6 +20,11 @@ export {
   OUTBOUND_SEND_STATUSES,
 } from "./outbound";
 export {
+  buildOutboundPersistenceResult,
+  createCanonicalOutboundPersistenceHandlers,
+  createNoOpCanonicalOutboundWriter,
+} from "./outbound-persistence";
+export {
   runOutboundOrchestration,
 } from "./outbound-orchestration";
 export {
@@ -62,10 +67,17 @@ export type {
   OutboundSendStatus,
 } from "./outbound";
 export type {
+  CanonicalOutboundMessageStatus,
+  CanonicalOutboundStatusUpdateHandler,
+  CanonicalOutboundStatusUpdateResult,
+  CanonicalOutboundWriter,
+  OutboundAuditHandoffHandler,
+  OutboundAuditHandoffResult,
+  OutboundPersistenceResult,
+} from "./outbound-persistence";
+export type {
   AuditDownstreamHandler,
   AuditDownstreamResult,
-  CanonicalStatusUpdateHandler,
-  CanonicalStatusUpdateResult,
   OutboundOrchestrationHandlers,
   OutboundOrchestrationResult,
   ProviderPayloadBuildResult,

@@ -1,13 +1,17 @@
 import {
   OUTBOUND_DELIVERY_STATES,
   OUTBOUND_SEND_STATUSES,
-  type OutboundAuditEvent,
   type OutboundDiagnostic,
   type OutboundRetryability,
   type OutboundSendEnvelope,
   type OutboundSendPipelineResult,
   type OutboundSendStatus,
 } from "./outbound";
+import type {
+  CanonicalOutboundStatusUpdateHandler,
+  CanonicalOutboundStatusUpdateResult,
+  OutboundAuditHandoffHandler,
+} from "./outbound-persistence";
 import type { JsonValue, SendResult } from "./types";
 
 export type ValidatedOutboundSend<TEnvelope extends OutboundSendEnvelope = OutboundSendEnvelope> =
@@ -27,18 +31,8 @@ export type ProviderSendExecutionResult = {
   diagnostics?: OutboundDiagnostic[];
 };
 
-export type CanonicalStatusUpdateResult = {
-  sendStatus: OutboundSendStatus;
-  providerAcceptedAt?: Date | null;
-  deliveryState?: OutboundSendPipelineResult["deliveryState"];
-  externalMessageId?: string | null;
-  retryable: boolean;
-  retryability?: OutboundRetryability;
-  diagnostics?: OutboundDiagnostic[];
-};
-
 export type AuditDownstreamResult = {
-  auditEvents: OutboundAuditEvent[];
+  auditEvents: OutboundSendPipelineResult["auditEvents"];
   diagnostics?: OutboundDiagnostic[];
 };
 
@@ -61,15 +55,6 @@ export type ProviderSendExecutor<
   providerPayload: TProviderPayload;
 }) => Promise<ProviderSendExecutionResult>;
 
-export type CanonicalStatusUpdateHandler<
-  TEnvelope extends OutboundSendEnvelope = OutboundSendEnvelope,
-  TProviderPayload = JsonValue,
-> = (input: {
-  envelope: TEnvelope;
-  providerPayload: TProviderPayload;
-  sendExecutionResult: ProviderSendExecutionResult;
-}) => Promise<CanonicalStatusUpdateResult>;
-
 export type AuditDownstreamHandler<
   TEnvelope extends OutboundSendEnvelope = OutboundSendEnvelope,
   TProviderPayload = JsonValue,
@@ -77,7 +62,7 @@ export type AuditDownstreamHandler<
   envelope: TEnvelope;
   providerPayload: TProviderPayload;
   sendExecutionResult: ProviderSendExecutionResult;
-  canonicalStatusResult: CanonicalStatusUpdateResult;
+  canonicalStatusResult: CanonicalOutboundStatusUpdateResult;
 }) => Promise<AuditDownstreamResult>;
 
 export type OutboundOrchestrationHandlers<
@@ -87,7 +72,11 @@ export type OutboundOrchestrationHandlers<
   validateSendEligibility?: SendEligibilityValidationHandler<TEnvelope>;
   buildProviderPayload?: ProviderPayloadBuilder<TEnvelope, TProviderPayload>;
   executeProviderSend?: ProviderSendExecutor<TEnvelope, TProviderPayload>;
-  updateCanonicalStatus?: CanonicalStatusUpdateHandler<TEnvelope, TProviderPayload>;
+  updateCanonicalStatus?: CanonicalOutboundStatusUpdateHandler<
+    TEnvelope,
+    TProviderPayload,
+    ProviderSendExecutionResult
+  >;
   writeAuditDownstream?: AuditDownstreamHandler<TEnvelope, TProviderPayload>;
 };
 
@@ -138,11 +127,19 @@ async function defaultExecuteProviderSend(): Promise<ProviderSendExecutionResult
 
 async function defaultUpdateCanonicalStatus(input: {
   sendExecutionResult: ProviderSendExecutionResult;
-}): Promise<CanonicalStatusUpdateResult> {
+  envelope: OutboundSendEnvelope;
+}): Promise<CanonicalOutboundStatusUpdateResult> {
   return {
+    workspaceId: input.envelope.workspaceId,
+    integrationId: input.envelope.integrationId,
+    conversationId: input.envelope.conversationId,
+    messageId: input.envelope.messageId,
     sendStatus:
       input.sendExecutionResult.sendStatus ??
       input.sendExecutionResult.sendResult.status,
+    updatedMessageStatus:
+      input.sendExecutionResult.sendResult.status === "FAILED" ? "FAILED" : "SENT",
+    sentAt: input.sendExecutionResult.sendResult.sentAt ?? null,
     providerAcceptedAt:
       input.sendExecutionResult.providerAcceptedAt ??
       input.sendExecutionResult.sendResult.sentAt ??
@@ -153,6 +150,7 @@ async function defaultUpdateCanonicalStatus(input: {
         ? OUTBOUND_DELIVERY_STATES.FAILED
         : OUTBOUND_DELIVERY_STATES.SENT),
     externalMessageId: input.sendExecutionResult.sendResult.externalMessageId ?? null,
+    approvalRequestId: input.envelope.approvalContext?.approvalRequestId ?? null,
     retryable: input.sendExecutionResult.retryability?.retryable ?? false,
     retryability: input.sendExecutionResult.retryability,
     diagnostics: input.sendExecutionResult.diagnostics,
