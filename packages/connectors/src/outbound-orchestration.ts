@@ -1,4 +1,13 @@
 import {
+  IDEMPOTENCY_DECISION_TYPES,
+  IDEMPOTENCY_SCOPES,
+  type IdempotencyKey,
+} from "./idempotency";
+import {
+  NoOpIdempotencyService,
+  type IdempotencyService,
+} from "./idempotency-service";
+import {
   OUTBOUND_DELIVERY_STATES,
   OUTBOUND_SEND_STATUSES,
   type OutboundDiagnostic,
@@ -10,7 +19,6 @@ import {
 import type {
   CanonicalOutboundStatusUpdateHandler,
   CanonicalOutboundStatusUpdateResult,
-  OutboundAuditHandoffHandler,
 } from "./outbound-persistence";
 import type { JsonValue, SendResult } from "./types";
 
@@ -81,6 +89,17 @@ export type OutboundOrchestrationHandlers<
 };
 
 export type OutboundOrchestrationResult = OutboundSendPipelineResult;
+export type OutboundIdempotencyKeyResolver<
+  TEnvelope extends OutboundSendEnvelope = OutboundSendEnvelope,
+> = (envelope: TEnvelope) => IdempotencyKey;
+
+export type OutboundOrchestrationDependencies<
+  TEnvelope extends OutboundSendEnvelope = OutboundSendEnvelope,
+> = {
+  idempotencyService?: IdempotencyService;
+  resolveIdempotencyKey?: OutboundIdempotencyKeyResolver<TEnvelope>;
+};
+const DEFAULT_IDEMPOTENCY_SERVICE = new NoOpIdempotencyService();
 
 async function defaultValidateSendEligibility<
   TEnvelope extends OutboundSendEnvelope,
@@ -163,81 +182,181 @@ async function defaultWriteAuditDownstream(): Promise<AuditDownstreamResult> {
   };
 }
 
+function defaultResolveOutboundIdempotencyKey<
+  TEnvelope extends OutboundSendEnvelope,
+>(envelope: TEnvelope): IdempotencyKey {
+  const logicalKey =
+    envelope.idempotencyKey ??
+    [
+      envelope.workspaceId,
+      envelope.integrationId,
+      envelope.conversationId,
+      envelope.messageId,
+      envelope.approvalContext?.approvalRequestId ?? "none",
+      "send",
+    ].join(":");
+
+  return {
+    key: logicalKey,
+    scope: IDEMPOTENCY_SCOPES.OUTBOUND,
+    workspaceId: envelope.workspaceId,
+    integrationId: envelope.integrationId,
+    operationType: "send",
+    resourceType: "message",
+    resourceId: envelope.messageId,
+  };
+}
+
+function buildDuplicateOutboundResult(
+  envelope: OutboundSendEnvelope,
+): OutboundOrchestrationResult {
+  return {
+    workspaceId: envelope.workspaceId,
+    integrationId: envelope.integrationId,
+    conversationId: envelope.conversationId,
+    messageId: envelope.messageId,
+    externalMessageId: null,
+    sendStatus: OUTBOUND_SEND_STATUSES.REJECTED,
+    providerAcceptedAt: null,
+    deliveryState: null,
+    auditEvents: [],
+    diagnostics: [
+      {
+        code: "OUTBOUND_IDEMPOTENT_DUPLICATE",
+        message: "Outbound operation already exists or is in progress",
+      },
+    ],
+    retryable: true,
+    retryability: {
+      retryable: true,
+      reason: "Existing idempotent outbound operation found",
+    },
+    sendResult: null,
+  };
+}
+
 export async function runOutboundOrchestration<
   TEnvelope extends OutboundSendEnvelope = OutboundSendEnvelope,
   TProviderPayload = JsonValue,
 >(
   envelope: TEnvelope,
   handlers: OutboundOrchestrationHandlers<TEnvelope, TProviderPayload> = {},
+  dependencies: OutboundOrchestrationDependencies<TEnvelope> = {},
 ): Promise<OutboundOrchestrationResult> {
   const diagnostics: OutboundDiagnostic[] = [];
-
-  const validatedEnvelope = await (
-    handlers.validateSendEligibility ?? defaultValidateSendEligibility
+  const idempotencyService =
+    dependencies.idempotencyService ?? DEFAULT_IDEMPOTENCY_SERVICE;
+  const idempotencyKey = (
+    dependencies.resolveIdempotencyKey ?? defaultResolveOutboundIdempotencyKey
   )(envelope);
 
-  const payloadBuildResult = await (
-    handlers.buildProviderPayload ?? defaultBuildProviderPayload
-  )({
-    envelope: validatedEnvelope,
-  });
+  const idempotencyDecision = await idempotencyService.check(idempotencyKey);
 
-  if (payloadBuildResult.diagnostics?.length) {
-    diagnostics.push(...payloadBuildResult.diagnostics);
+  if (
+    idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.ALREADY_PROCESSED ||
+    idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.IN_PROGRESS
+  ) {
+    return buildDuplicateOutboundResult(envelope);
   }
 
-  const sendExecutionResult = await (
-    handlers.executeProviderSend ?? defaultExecuteProviderSend
-  )({
-    envelope: validatedEnvelope,
-    providerPayload: payloadBuildResult.providerPayload as TProviderPayload,
+  await idempotencyService.begin({
+    key: idempotencyKey,
   });
 
-  if (sendExecutionResult.diagnostics?.length) {
-    diagnostics.push(...sendExecutionResult.diagnostics);
+  try {
+    const validatedEnvelope = await (
+      handlers.validateSendEligibility ?? defaultValidateSendEligibility
+    )(envelope);
+
+    const payloadBuildResult = await (
+      handlers.buildProviderPayload ?? defaultBuildProviderPayload
+    )({
+      envelope: validatedEnvelope,
+    });
+
+    if (payloadBuildResult.diagnostics?.length) {
+      diagnostics.push(...payloadBuildResult.diagnostics);
+    }
+
+    const sendExecutionResult = await (
+      handlers.executeProviderSend ?? defaultExecuteProviderSend
+    )({
+      envelope: validatedEnvelope,
+      providerPayload: payloadBuildResult.providerPayload as TProviderPayload,
+    });
+
+    if (sendExecutionResult.diagnostics?.length) {
+      diagnostics.push(...sendExecutionResult.diagnostics);
+    }
+
+    const canonicalStatusResult = await (
+      handlers.updateCanonicalStatus ?? defaultUpdateCanonicalStatus
+    )({
+      envelope: validatedEnvelope,
+      providerPayload: payloadBuildResult.providerPayload as TProviderPayload,
+      sendExecutionResult,
+    });
+
+    if (canonicalStatusResult.diagnostics?.length) {
+      diagnostics.push(...canonicalStatusResult.diagnostics);
+    }
+
+    const auditDownstreamResult = await (
+      handlers.writeAuditDownstream ?? defaultWriteAuditDownstream
+    )({
+      envelope: validatedEnvelope,
+      providerPayload: payloadBuildResult.providerPayload as TProviderPayload,
+      sendExecutionResult,
+      canonicalStatusResult,
+    });
+
+    if (auditDownstreamResult.diagnostics?.length) {
+      diagnostics.push(...auditDownstreamResult.diagnostics);
+    }
+
+    const result = {
+      workspaceId: validatedEnvelope.workspaceId,
+      integrationId: validatedEnvelope.integrationId,
+      conversationId: validatedEnvelope.conversationId,
+      messageId: validatedEnvelope.messageId,
+      externalMessageId:
+        canonicalStatusResult.externalMessageId ??
+        sendExecutionResult.sendResult.externalMessageId ??
+        null,
+      sendStatus: canonicalStatusResult.sendStatus,
+      providerAcceptedAt: canonicalStatusResult.providerAcceptedAt ?? null,
+      deliveryState: canonicalStatusResult.deliveryState ?? null,
+      auditEvents: auditDownstreamResult.auditEvents,
+      diagnostics,
+      retryable: canonicalStatusResult.retryable,
+      retryability: canonicalStatusResult.retryability,
+      sendResult: sendExecutionResult.sendResult,
+    } satisfies OutboundOrchestrationResult;
+
+    await idempotencyService.complete({
+      key: idempotencyKey,
+      resultSummaryJson: {
+        workspaceId: result.workspaceId,
+        integrationId: result.integrationId,
+        conversationId: result.conversationId,
+        messageId: result.messageId,
+        externalMessageId: result.externalMessageId,
+        sendStatus: result.sendStatus,
+      },
+    });
+
+    return result;
+  } catch (error) {
+    await idempotencyService.fail({
+      key: idempotencyKey,
+      resultSummaryJson: {
+        error:
+          error instanceof Error
+            ? { message: error.message }
+            : { message: "Unknown outbound orchestration error" },
+      },
+    });
+
+    throw error;
   }
-
-  const canonicalStatusResult = await (
-    handlers.updateCanonicalStatus ?? defaultUpdateCanonicalStatus
-  )({
-    envelope: validatedEnvelope,
-    providerPayload: payloadBuildResult.providerPayload as TProviderPayload,
-    sendExecutionResult,
-  });
-
-  if (canonicalStatusResult.diagnostics?.length) {
-    diagnostics.push(...canonicalStatusResult.diagnostics);
-  }
-
-  const auditDownstreamResult = await (
-    handlers.writeAuditDownstream ?? defaultWriteAuditDownstream
-  )({
-    envelope: validatedEnvelope,
-    providerPayload: payloadBuildResult.providerPayload as TProviderPayload,
-    sendExecutionResult,
-    canonicalStatusResult,
-  });
-
-  if (auditDownstreamResult.diagnostics?.length) {
-    diagnostics.push(...auditDownstreamResult.diagnostics);
-  }
-
-  return {
-    workspaceId: validatedEnvelope.workspaceId,
-    integrationId: validatedEnvelope.integrationId,
-    conversationId: validatedEnvelope.conversationId,
-    messageId: validatedEnvelope.messageId,
-    externalMessageId:
-      canonicalStatusResult.externalMessageId ??
-      sendExecutionResult.sendResult.externalMessageId ??
-      null,
-    sendStatus: canonicalStatusResult.sendStatus,
-    providerAcceptedAt: canonicalStatusResult.providerAcceptedAt ?? null,
-    deliveryState: canonicalStatusResult.deliveryState ?? null,
-    auditEvents: auditDownstreamResult.auditEvents,
-    diagnostics,
-    retryable: canonicalStatusResult.retryable,
-    retryability: canonicalStatusResult.retryability,
-    sendResult: sendExecutionResult.sendResult,
-  };
 }

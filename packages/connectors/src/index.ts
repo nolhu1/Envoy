@@ -102,6 +102,8 @@ export type {
 export type {
   AuditDownstreamHandler,
   AuditDownstreamResult,
+  OutboundIdempotencyKeyResolver,
+  OutboundOrchestrationDependencies,
   OutboundOrchestrationHandlers,
   OutboundOrchestrationResult,
   ProviderPayloadBuildResult,
@@ -114,6 +116,8 @@ export type {
 export type {
   DedupeHandler,
   DownstreamEventHandler,
+  InboundIdempotencyKeyResolver,
+  InboundOrchestrationDependencies,
   InboundOrchestrationHandlers,
   InboundOrchestrationResult,
   NormalizationHandler,
