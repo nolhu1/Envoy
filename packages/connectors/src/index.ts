@@ -7,6 +7,17 @@ export type {
 } from "./connector";
 export type { Connector } from "./connector";
 export {
+  AUTH_MATERIAL_TYPES,
+} from "./credentials";
+export type {
+  ApiKeyAuthMaterial,
+  AuthMaterialType,
+  ConnectorAuthMaterial,
+  OAuthAuthMaterial,
+  SecretRef,
+  WebhookSecretMaterial,
+} from "./credentials";
+export {
   INTEGRATION_STATUSES,
   INTEGRATION_STATUS_TRANSITIONS,
   assertValidIntegrationStatusTransition,

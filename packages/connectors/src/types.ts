@@ -1,3 +1,7 @@
+import type {
+  ConnectorAuthMaterial,
+  SecretRef,
+} from "./credentials";
 import type { IntegrationStatus } from "./lifecycle";
 
 export type JsonPrimitive = boolean | number | string | null;
@@ -41,9 +45,10 @@ export type ConnectorContext = {
   integrationId?: string | null;
   platform: ConnectorPlatform;
   externalAccountId?: string | null;
-  authData?: JsonValue | null;
   config?: JsonValue | null;
   platformMetadataJson?: JsonValue | null;
+  secretRef?: SecretRef | null;
+  authMaterial?: ConnectorAuthMaterial | null;
 };
 
 export type WebhookInput = {
@@ -137,7 +142,8 @@ export type ConnectResult = {
   externalAccountId?: string | null;
   displayName?: string | null;
   status: IntegrationStatus;
-  authData?: JsonValue | null;
+  secretRef?: SecretRef | null;
+  authMaterial?: ConnectorAuthMaterial | null;
   platformMetadataJson?: JsonValue | null;
 };
 
