@@ -15,6 +15,10 @@ export {
   INBOUND_STAGES,
 } from "./inbound";
 export {
+  InMemoryIdempotencyService,
+  NoOpIdempotencyService,
+} from "./idempotency-service";
+export {
   IDEMPOTENCY_DECISION_TYPES,
   IDEMPOTENCY_SCOPES,
   IDEMPOTENCY_STATUSES,
@@ -67,6 +71,13 @@ export type {
   IdempotencyScope,
   IdempotencyStatus,
 } from "./idempotency";
+export type {
+  IdempotencyBeginInput,
+  IdempotencyCompleteInput,
+  IdempotencyFailInput,
+  IdempotencyMarkDuplicateInput,
+  IdempotencyService,
+} from "./idempotency-service";
 export type {
   OutboundActorContext,
   OutboundActorType,
