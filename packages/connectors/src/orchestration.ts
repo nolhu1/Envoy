@@ -7,6 +7,10 @@ import {
   type InboundIngestionResult,
   type InboundInsertedCounts,
 } from "./inbound";
+import type {
+  CanonicalWriteHandler,
+  CanonicalWriteResult,
+} from "./persistence";
 import type { IngestionBatch } from "./types";
 
 export type ParsedInboundPayload<TParsedPayload = unknown> = {
@@ -17,13 +21,6 @@ export type ParsedInboundPayload<TParsedPayload = unknown> = {
 
 export type NormalizedInboundPayload = {
   batch: IngestionBatch;
-  diagnostics?: InboundDiagnostic[];
-};
-
-export type CanonicalWriteResult = {
-  conversationId?: string | null;
-  messageIds: string[];
-  insertedCounts: InboundInsertedCounts;
   diagnostics?: InboundDiagnostic[];
 };
 
@@ -47,13 +44,6 @@ export type NormalizationHandler<TParsedPayload = unknown> = (input: {
   envelope: InboundEnvelope;
   parsedPayload: TParsedPayload;
 }) => Promise<NormalizedInboundPayload>;
-
-export type CanonicalWriteHandler<TParsedPayload = unknown> = (input: {
-  envelope: InboundEnvelope;
-  parsedPayload: TParsedPayload;
-  batch: IngestionBatch;
-  dedupeDecision: DedupeDecision;
-}) => Promise<CanonicalWriteResult>;
 
 export type DownstreamEventHandler<TParsedPayload = unknown> = (input: {
   envelope: InboundEnvelope;
@@ -123,7 +113,9 @@ async function defaultNormalize(): Promise<NormalizedInboundPayload> {
 async function defaultWriteCanonicalData(): Promise<CanonicalWriteResult> {
   return {
     conversationId: null,
+    participantResolutionMap: {},
     messageIds: [],
+    attachmentIds: [],
     insertedCounts: EMPTY_INSERTED_COUNTS,
   };
 }

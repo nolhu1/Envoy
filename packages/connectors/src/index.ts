@@ -15,6 +15,11 @@ export {
   INBOUND_STAGES,
 } from "./inbound";
 export {
+  buildCanonicalWriteResult,
+  createCanonicalWriteHandler,
+  createNoOpCanonicalPersistenceWriter,
+} from "./persistence";
+export {
   runInboundOrchestration,
 } from "./orchestration";
 export type {
@@ -37,8 +42,6 @@ export type {
   InboundStage,
 } from "./inbound";
 export type {
-  CanonicalWriteHandler,
-  CanonicalWriteResult,
   DedupeHandler,
   DownstreamEventHandler,
   InboundOrchestrationHandlers,
@@ -49,6 +52,18 @@ export type {
   ParsingHandler,
   SourceValidationHandler,
 } from "./orchestration";
+export type {
+  CanonicalPersistenceWriter,
+  CanonicalWriteHandler,
+  CanonicalWriteMatchedCounts,
+  CanonicalWriteResult,
+  ConversationParticipantsWriteHandler,
+  ConversationParticipantsWriteResult,
+  MessageAttachmentWriteHandler,
+  MessageAttachmentWriteResult,
+  ParticipantResolution,
+  ParticipantResolutionMap,
+} from "./persistence";
 export {
   INTEGRATION_STATUSES,
   INTEGRATION_STATUS_TRANSITIONS,
