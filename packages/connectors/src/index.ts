@@ -1,0 +1,31 @@
+export type {
+  ConnectInput,
+  DisconnectInput,
+  FetchConversationInput,
+  FetchConversationResult,
+  RefreshAuthInput,
+} from "./connector";
+export type { Connector } from "./connector";
+export type {
+  ConnectResult,
+  ConnectorContext,
+  ConnectorPlatform,
+  ConversationState,
+  IngestionBatch,
+  IntegrationStatus,
+  JsonPrimitive,
+  JsonValue,
+  MessageDirection,
+  MessageStatus,
+  NormalizedAttachmentCandidate,
+  NormalizedConversationCandidate,
+  NormalizedMessageCandidate,
+  NormalizedParticipantCandidate,
+  OutboundSendInput,
+  SendResult,
+  SenderType,
+  SyncInput,
+  SyncResult,
+  WebhookInput,
+  WorkspaceUserRole,
+} from "./types";
