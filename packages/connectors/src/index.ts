@@ -15,6 +15,11 @@ export {
   INBOUND_STAGES,
 } from "./inbound";
 export {
+  OUTBOUND_ACTOR_TYPES,
+  OUTBOUND_DELIVERY_STATES,
+  OUTBOUND_SEND_STATUSES,
+} from "./outbound";
+export {
   buildCanonicalWriteResult,
   createCanonicalWriteHandler,
   createNoOpCanonicalPersistenceWriter,
@@ -41,6 +46,18 @@ export type {
   InboundSourceType,
   InboundStage,
 } from "./inbound";
+export type {
+  OutboundActorContext,
+  OutboundActorType,
+  OutboundApprovalContext,
+  OutboundAuditEvent,
+  OutboundDeliveryState,
+  OutboundDiagnostic,
+  OutboundRetryability,
+  OutboundSendEnvelope,
+  OutboundSendPipelineResult,
+  OutboundSendStatus,
+} from "./outbound";
 export type {
   DedupeHandler,
   DownstreamEventHandler,
