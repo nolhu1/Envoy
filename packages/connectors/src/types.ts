@@ -1,3 +1,5 @@
+import type { IntegrationStatus } from "./lifecycle";
+
 export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue =
@@ -6,13 +8,6 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 export type ConnectorPlatform = string;
-
-export type IntegrationStatus =
-  | "PENDING"
-  | "CONNECTED"
-  | "SYNCING"
-  | "ERROR"
-  | "DISCONNECTED";
 
 export type WorkspaceUserRole = "ADMIN" | "MEMBER" | "VIEWER";
 
