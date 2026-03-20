@@ -15,6 +15,11 @@ export {
   INBOUND_STAGES,
 } from "./inbound";
 export {
+  IDEMPOTENCY_DECISION_TYPES,
+  IDEMPOTENCY_SCOPES,
+  IDEMPOTENCY_STATUSES,
+} from "./idempotency";
+export {
   OUTBOUND_ACTOR_TYPES,
   OUTBOUND_DELIVERY_STATES,
   OUTBOUND_SEND_STATUSES,
@@ -54,6 +59,14 @@ export type {
   InboundSourceType,
   InboundStage,
 } from "./inbound";
+export type {
+  IdempotencyDecision,
+  IdempotencyDecisionType,
+  IdempotencyKey,
+  IdempotencyRecordSummary,
+  IdempotencyScope,
+  IdempotencyStatus,
+} from "./idempotency";
 export type {
   OutboundActorContext,
   OutboundActorType,
