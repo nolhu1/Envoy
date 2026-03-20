@@ -14,6 +14,9 @@ export {
   INBOUND_SOURCE_TYPES,
   INBOUND_STAGES,
 } from "./inbound";
+export {
+  runInboundOrchestration,
+} from "./orchestration";
 export type {
   ApiKeyAuthMaterial,
   AuthMaterialType,
@@ -33,6 +36,19 @@ export type {
   InboundSourceType,
   InboundStage,
 } from "./inbound";
+export type {
+  CanonicalWriteHandler,
+  CanonicalWriteResult,
+  DedupeHandler,
+  DownstreamEventHandler,
+  InboundOrchestrationHandlers,
+  InboundOrchestrationResult,
+  NormalizationHandler,
+  NormalizedInboundPayload,
+  ParsedInboundPayload,
+  ParsingHandler,
+  SourceValidationHandler,
+} from "./orchestration";
 export {
   INTEGRATION_STATUSES,
   INTEGRATION_STATUS_TRANSITIONS,
