@@ -9,6 +9,11 @@ export type { Connector } from "./connector";
 export {
   AUTH_MATERIAL_TYPES,
 } from "./credentials";
+export {
+  DEDUPE_STATUSES,
+  INBOUND_SOURCE_TYPES,
+  INBOUND_STAGES,
+} from "./inbound";
 export type {
   ApiKeyAuthMaterial,
   AuthMaterialType,
@@ -17,6 +22,17 @@ export type {
   SecretRef,
   WebhookSecretMaterial,
 } from "./credentials";
+export type {
+  DedupeDecision,
+  DedupeStatus,
+  InboundDiagnostic,
+  InboundEmittedEvent,
+  InboundEnvelope,
+  InboundIngestionResult,
+  InboundInsertedCounts,
+  InboundSourceType,
+  InboundStage,
+} from "./inbound";
 export {
   INTEGRATION_STATUSES,
   INTEGRATION_STATUS_TRANSITIONS,
