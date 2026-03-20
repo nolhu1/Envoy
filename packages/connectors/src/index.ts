@@ -10,6 +10,11 @@ export {
   AUTH_MATERIAL_TYPES,
 } from "./credentials";
 export {
+  GMAIL_MVP_SCOPES,
+  GMAIL_PROVIDER,
+  GmailConnector,
+} from "./gmail";
+export {
   DEDUPE_STATUSES,
   INBOUND_SOURCE_TYPES,
   INBOUND_STAGES,
@@ -44,6 +49,11 @@ export {
 export {
   runInboundOrchestration,
 } from "./orchestration";
+export type {
+  GmailConnectorConfig,
+  GmailOAuthConnectCredentialInput,
+  GmailProviderPayloadPlaceholder,
+} from "./gmail";
 export type {
   ApiKeyAuthMaterial,
   AuthMaterialType,
