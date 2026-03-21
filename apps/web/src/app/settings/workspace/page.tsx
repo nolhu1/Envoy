@@ -6,10 +6,23 @@ import {
   requirePermission,
 } from "@/lib/permissions";
 import { getCurrentWorkspace } from "@/lib/workspace";
+import { startGmailConnectAction } from "@/app/settings/workspace/actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function WorkspaceSettingsPage() {
+type WorkspaceSettingsPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function readSearchParam(
+  value: string | string[] | undefined,
+) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function WorkspaceSettingsPage({
+  searchParams,
+}: WorkspaceSettingsPageProps) {
   const authContext = await requirePermission(
     PERMISSIONS.VIEW_WORKSPACE_SETTINGS,
   );
@@ -18,10 +31,26 @@ export default async function WorkspaceSettingsPage() {
     PERMISSIONS.CONNECT_INTEGRATIONS,
   );
   const workspace = await getCurrentWorkspace();
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const gmailStatus = readSearchParam(resolvedSearchParams?.gmail);
+  const gmailMessage = readSearchParam(resolvedSearchParams?.message);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-10">
       <div className="mx-auto max-w-5xl">
+        {gmailStatus === "connected" ? (
+          <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Gmail connected successfully. Initial sync and callback follow-up
+            flows are still pending.
+          </section>
+        ) : null}
+
+        {gmailStatus === "error" && gmailMessage ? (
+          <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Gmail connect failed: {gmailMessage}
+          </section>
+        ) : null}
+
         <header className="rounded-[28px] bg-slate-950 px-8 py-8 text-white shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
           <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">
             Workspace Settings
@@ -130,12 +159,18 @@ export default async function WorkspaceSettingsPage() {
               Integrations and workspace management
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
-              This section is reserved for future admin-only integrations and
-              workspace management controls.
+              Start the Gmail OAuth connect flow for this workspace. Callback
+              exchange, token storage, and integration persistence are still
+              pending.
             </p>
-            <div className="mt-6 inline-flex rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700">
-              Integrations management coming soon
-            </div>
+            <form action={startGmailConnectAction} className="mt-6">
+              <button
+                type="submit"
+                className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                Connect Gmail
+              </button>
+            </form>
           </section>
         ) : null}
       </div>

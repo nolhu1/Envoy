@@ -18,17 +18,39 @@ export {
   GMAIL_OAUTH_ACCESS_TYPE,
   GMAIL_OAUTH_AUTH_BASE_URL,
   GMAIL_OAUTH_DEFAULT_STATE_TTL_SECONDS,
+  GMAIL_GMAIL_PROFILE_URL,
   GMAIL_OAUTH_INCLUDE_GRANTED_SCOPES,
   GMAIL_OAUTH_PROMPT,
   GMAIL_OAUTH_RESPONSE_TYPE,
+  GMAIL_OAUTH_TOKEN_URL,
   buildGmailAuthorizationUrl,
   createGmailOAuthStatePayload,
   decodeAndVerifyGmailOAuthState,
   decodeVerifyAndValidateGmailOAuthState,
+  exchangeGmailAuthorizationCode,
+  fetchGmailAccountProfile,
   getGmailOAuthConfig,
   signAndEncodeGmailOAuthState,
   validateGmailOAuthStatePayload,
 } from "./gmail-oauth";
+export {
+  normalizeGmailAttachmentCandidates,
+  normalizeGmailConversationCandidate,
+  normalizeGmailMessageCandidate,
+  normalizeGmailParticipantCandidates,
+  normalizeGmailThread,
+} from "./gmail-normalization";
+export {
+  GMAIL_RECENT_SYNC_DEFAULT_MAX_RESULTS,
+  GMAIL_RECENT_SYNC_DEFAULT_WINDOW_DAYS,
+  GMAIL_RECENT_SYNC_MAX_RESULTS_LIMIT,
+  GMAIL_THREAD_DETAIL_FORMAT,
+  GMAIL_THREADS_LIST_URL,
+  buildGmailRecentThreadSyncInput,
+  fetchGmailRecentThreads,
+  getGmailThreadSubject,
+  toGmailSyncResult,
+} from "./gmail-sync";
 export {
   DEDUPE_STATUSES,
   INBOUND_SOURCE_TYPES,
@@ -72,9 +94,22 @@ export type {
 export type {
   GmailAuthorizationUrlInput,
   GmailAuthorizationUrlResult,
+  GmailAccountProfile,
   GmailOAuthConfig,
+  GmailOAuthExchangeResult,
   GmailOAuthStatePayload,
+  GmailOAuthTokenResponse,
 } from "./gmail-oauth";
+export type { GmailThreadNormalizationResult } from "./gmail-normalization";
+export type {
+  GmailMessage,
+  GmailMessageHeader,
+  GmailMessagePayload,
+  GmailRecentThreadSyncInput,
+  GmailRecentThreadSyncResult,
+  GmailThread,
+  GmailThreadListItem,
+} from "./gmail-sync";
 export type {
   ApiKeyAuthMaterial,
   AuthMaterialType,

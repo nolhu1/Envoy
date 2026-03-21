@@ -1,0 +1,207 @@
+import {
+  decodeVerifyAndValidateGmailOAuthState,
+  exchangeGmailAuthorizationCode,
+  fetchGmailAccountProfile,
+} from "@envoy/connectors";
+import { createSecret, getPrisma, rotateSecret } from "@envoy/db";
+import { NextResponse } from "next/server";
+
+import { getCurrentAppAuthContext } from "@/lib/app-auth";
+import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { getWorkspaceByIdForCurrentUser } from "@/lib/workspace";
+
+const GMAIL_SECRET_TYPE = "gmail_oauth";
+const SETTINGS_PATH = "/settings/workspace";
+
+function buildSettingsRedirect(request: Request, params?: URLSearchParams) {
+  const url = new URL(SETTINGS_PATH, request.url);
+
+  if (params) {
+    url.search = params.toString();
+  }
+
+  return NextResponse.redirect(url);
+}
+
+function buildErrorRedirect(request: Request, message: string) {
+  const params = new URLSearchParams({
+    gmail: "error",
+    message,
+  });
+
+  return buildSettingsRedirect(request, params);
+}
+
+function buildSuccessRedirect(request: Request) {
+  const params = new URLSearchParams({
+    gmail: "connected",
+  });
+
+  return buildSettingsRedirect(request, params);
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const oauthError = url.searchParams.get("error");
+
+  if (oauthError) {
+    return buildErrorRedirect(request, "Google OAuth connection was denied.");
+  }
+
+  if (!code || !state) {
+    return buildErrorRedirect(request, "Missing Gmail OAuth callback parameters.");
+  }
+
+  const authContext = await getCurrentAppAuthContext();
+
+  if (!authContext) {
+    return NextResponse.redirect(new URL("/sign-in", request.url));
+  }
+
+  if (!hasPermission(authContext.role, PERMISSIONS.CONNECT_INTEGRATIONS)) {
+    return buildErrorRedirect(
+      request,
+      "You do not have permission to connect integrations.",
+    );
+  }
+
+  let integrationId: string | null = null;
+
+  try {
+    const validatedState = decodeVerifyAndValidateGmailOAuthState(state);
+
+    if (
+      validatedState.workspaceId !== authContext.workspaceId ||
+      validatedState.initiatingUserId !== authContext.userId
+    ) {
+      throw new Error("Gmail OAuth state does not match the current session.");
+    }
+
+    const workspace = await getWorkspaceByIdForCurrentUser(validatedState.workspaceId);
+
+    if (!workspace) {
+      throw new Error("The current workspace could not be loaded.");
+    }
+
+    const { authMaterial } = await exchangeGmailAuthorizationCode({ code });
+    const profile = await fetchGmailAccountProfile(authMaterial.accessToken);
+    const prisma = getPrisma();
+    const externalAccountId = profile.emailAddress;
+    const displayName = profile.emailAddress;
+    const platformMetadataJson = {
+      provider: "gmail",
+      connectedEmail: profile.emailAddress,
+      providerDisplayLabel: displayName,
+      grantedScopes: authMaterial.scopes ?? [],
+      gmailHistoryId: profile.historyId ?? null,
+    };
+
+    const existingIntegration = await prisma.integration.findFirst({
+      where: {
+        workspaceId: workspace.id,
+        platform: "EMAIL",
+        externalAccountId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const integration = existingIntegration
+      ? await prisma.integration.update({
+          where: {
+            id: existingIntegration.id,
+          },
+          data: {
+            authType: "oauth",
+            displayName,
+            status: "PENDING",
+            platformMetadataJson,
+          },
+        })
+      : await prisma.integration.create({
+          data: {
+            workspaceId: workspace.id,
+            platform: "EMAIL",
+            externalAccountId,
+            displayName,
+            authType: "oauth",
+            status: "PENDING",
+            platformMetadataJson,
+          },
+        });
+
+    integrationId = integration.id;
+
+    const existingSecret = await prisma.connectorSecret.findFirst({
+      where: {
+        workspaceId: workspace.id,
+        integrationId: integration.id,
+        revokedAt: null,
+      },
+      select: {
+        secretRef: true,
+      },
+      orderBy: [{ version: "desc" }, { updatedAt: "desc" }],
+    });
+
+    authMaterial.providerAccountId = externalAccountId;
+
+    if (existingSecret) {
+      await rotateSecret({
+        secretRef: existingSecret.secretRef,
+        workspaceId: workspace.id,
+        integrationId: integration.id,
+        secretType: GMAIL_SECRET_TYPE,
+        payload: authMaterial,
+      });
+    } else {
+      await createSecret({
+        workspaceId: workspace.id,
+        integrationId: integration.id,
+        secretType: GMAIL_SECRET_TYPE,
+        payload: authMaterial,
+      });
+    }
+
+    await prisma.integration.update({
+      where: {
+        id: integration.id,
+      },
+      data: {
+        status: "CONNECTED",
+        displayName,
+        authType: "oauth",
+        platformMetadataJson: {
+          ...platformMetadataJson,
+          connectedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return buildSuccessRedirect(request);
+  } catch (error) {
+    if (integrationId) {
+      await getPrisma().integration.update({
+        where: {
+          id: integrationId,
+        },
+        data: {
+          status: "ERROR",
+          platformMetadataJson: {
+            provider: "gmail",
+            connectError: error instanceof Error ? error.message : "Unknown error",
+          },
+        },
+      });
+    }
+
+    return buildErrorRedirect(
+      request,
+      error instanceof Error ? error.message : "Unable to complete Gmail connect.",
+    );
+  }
+}

@@ -7,6 +7,15 @@ import type {
   FetchConversationResult,
   RefreshAuthInput,
 } from "./connector";
+import {
+  buildGmailRecentThreadSyncInput,
+  fetchGmailRecentThreads,
+  toGmailSyncResult,
+} from "./gmail-sync";
+import {
+  normalizeGmailConversationCandidate,
+  normalizeGmailMessageCandidate,
+} from "./gmail-normalization";
 import { INTEGRATION_STATUSES } from "./lifecycle";
 import { OUTBOUND_SEND_STATUSES } from "./outbound";
 import type {
@@ -52,26 +61,6 @@ function isJsonObject(value: JsonValue): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readString(value: JsonValue | undefined) {
-  return typeof value === "string" ? value : null;
-}
-
-function readDateFromEpochMillis(value: JsonValue | undefined) {
-  const stringValue = readString(value);
-
-  if (!stringValue) {
-    return null;
-  }
-
-  const epochMillis = Number(stringValue);
-
-  if (!Number.isFinite(epochMillis)) {
-    return null;
-  }
-
-  return new Date(epochMillis);
-}
-
 function buildEmptyBatch(rawPayloadJson?: JsonValue | null) {
   return {
     conversations: [],
@@ -84,26 +73,6 @@ function buildEmptyBatch(rawPayloadJson?: JsonValue | null) {
       stub: true,
     },
   };
-}
-
-function resolveExternalConversationId(rawConversation: JsonValue) {
-  if (!isJsonObject(rawConversation)) {
-    return "gmail-thread-placeholder";
-  }
-
-  return (
-    readString(rawConversation.threadId) ??
-    readString(rawConversation.id) ??
-    "gmail-thread-placeholder"
-  );
-}
-
-function resolveExternalMessageId(rawMessage: JsonValue) {
-  if (!isJsonObject(rawMessage)) {
-    return "gmail-message-placeholder";
-  }
-
-  return readString(rawMessage.id) ?? "gmail-message-placeholder";
 }
 
 export class GmailConnector implements Connector {
@@ -170,15 +139,11 @@ export class GmailConnector implements Connector {
   }
 
   async syncHistory(_input: SyncInput): Promise<SyncResult> {
-    return {
-      batch: buildEmptyBatch(),
-      nextCursor: null,
-      hasMore: false,
-      diagnosticsJson: {
-        provider: GMAIL_PROVIDER,
-        syncImplemented: false,
-      },
-    };
+    const gmailSyncResult = await fetchGmailRecentThreads(
+      buildGmailRecentThreadSyncInput(_input),
+    );
+
+    return toGmailSyncResult(gmailSyncResult);
   }
 
   async sendMessage(input: OutboundSendInput): Promise<SendResult> {
@@ -226,18 +191,23 @@ export class GmailConnector implements Connector {
       ? input.rawConversation
       : {};
 
-    return {
-      externalConversationId: resolveExternalConversationId(input.rawConversation),
-      platform: input.context.platform,
-      subject: readString(rawConversation.subject) ?? readString(rawConversation.snippet),
-      lastMessageAt: readDateFromEpochMillis(rawConversation.historyId),
-      rawPayloadJson: input.rawConversation,
-      platformMetadataJson: {
-        provider: GMAIL_PROVIDER,
-        threadId:
-          readString(rawConversation.threadId) ?? readString(rawConversation.id),
-      },
-    };
+    return normalizeGmailConversationCandidate(input.context, {
+      id:
+        typeof rawConversation.id === "string"
+          ? rawConversation.id
+          : "gmail-thread-placeholder",
+      historyId:
+        typeof rawConversation.historyId === "string"
+          ? rawConversation.historyId
+          : undefined,
+      snippet:
+        typeof rawConversation.snippet === "string"
+          ? rawConversation.snippet
+          : undefined,
+      messages: Array.isArray(rawConversation.messages)
+        ? (rawConversation.messages as never)
+        : undefined,
+    });
   }
 
   async normalizeMessage(input: {
@@ -245,26 +215,38 @@ export class GmailConnector implements Connector {
     rawMessage: JsonValue;
   }): Promise<NormalizedMessageCandidate> {
     const rawMessage = isJsonObject(input.rawMessage) ? input.rawMessage : {};
-    const labelIds = Array.isArray(rawMessage.labelIds) ? rawMessage.labelIds : [];
-    const isSent = labelIds.includes("SENT");
 
-    return {
-      externalMessageId: resolveExternalMessageId(input.rawMessage),
-      externalConversationId:
-        readString(rawMessage.threadId) ?? "gmail-thread-placeholder",
-      platform: input.context.platform,
-      senderType: isSent ? "USER" : "EXTERNAL",
-      direction: isSent ? "OUTBOUND" : "INBOUND",
-      bodyText: readString(rawMessage.snippet),
-      status: isSent ? "SENT" : "RECEIVED",
-      sentAt: readDateFromEpochMillis(rawMessage.internalDate),
-      receivedAt: readDateFromEpochMillis(rawMessage.internalDate),
-      rawPayloadJson: input.rawMessage,
-      platformMetadataJson: {
-        provider: GMAIL_PROVIDER,
-        labelIds,
-        threadId: readString(rawMessage.threadId),
-      },
-    };
+    return normalizeGmailMessageCandidate(input.context, {
+      id:
+        typeof rawMessage.id === "string"
+          ? rawMessage.id
+          : "gmail-message-placeholder",
+      threadId:
+        typeof rawMessage.threadId === "string"
+          ? rawMessage.threadId
+          : "gmail-thread-placeholder",
+      labelIds: Array.isArray(rawMessage.labelIds)
+        ? (rawMessage.labelIds.filter((value) => typeof value === "string") as string[])
+        : undefined,
+      snippet:
+        typeof rawMessage.snippet === "string"
+          ? rawMessage.snippet
+          : undefined,
+      historyId:
+        typeof rawMessage.historyId === "string"
+          ? rawMessage.historyId
+          : undefined,
+      internalDate:
+        typeof rawMessage.internalDate === "string"
+          ? rawMessage.internalDate
+          : undefined,
+      payload: isJsonObject(rawMessage.payload)
+        ? (rawMessage.payload as never)
+        : undefined,
+      sizeEstimate:
+        typeof rawMessage.sizeEstimate === "number"
+          ? rawMessage.sizeEstimate
+          : undefined,
+    });
   }
 }

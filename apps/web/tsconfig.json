@@ -20,6 +20,7 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
+      "@envoy/connectors": ["../../packages/connectors/src/index.ts"],
       "@envoy/db": ["../../packages/db/src/index.ts"]
     }
   },
