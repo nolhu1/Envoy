@@ -1,5 +1,6 @@
 export { getPrisma } from "./client";
 export { createPrismaCanonicalPersistenceWriter } from "./inbound-writer";
+export { createPrismaCanonicalOutboundWriter } from "./outbound-writer";
 export {
   resolveConnectorContextForWorkspaceIntegration,
   resolveConnectorContextFromIntegration,
