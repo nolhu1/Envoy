@@ -15,6 +15,11 @@ export {
   GmailConnector,
 } from "./gmail";
 export {
+  SLACK_MVP_SCOPES,
+  SLACK_PROVIDER,
+  SlackConnector,
+} from "./slack";
+export {
   GMAIL_OAUTH_ACCESS_TYPE,
   GMAIL_OAUTH_AUTH_BASE_URL,
   GMAIL_OAUTH_DEFAULT_STATE_TTL_SECONDS,
@@ -34,6 +39,17 @@ export {
   signAndEncodeGmailOAuthState,
   validateGmailOAuthStatePayload,
 } from "./gmail-oauth";
+export {
+  SLACK_OAUTH_AUTH_BASE_URL,
+  SLACK_OAUTH_DEFAULT_STATE_TTL_SECONDS,
+  buildSlackAuthorizationUrl,
+  createSlackOAuthStatePayload,
+  decodeAndVerifySlackOAuthState,
+  decodeVerifyAndValidateSlackOAuthState,
+  getSlackOAuthConfig,
+  signAndEncodeSlackOAuthState,
+  validateSlackOAuthStatePayload,
+} from "./slack-oauth";
 export {
   normalizeGmailAttachmentCandidates,
   normalizeGmailConversationCandidate,
@@ -99,6 +115,11 @@ export type {
   GmailProviderPayloadPlaceholder,
 } from "./gmail";
 export type {
+  SlackConnectorConfig,
+  SlackOAuthInstallCredentialInput,
+  SlackProviderPayloadPlaceholder,
+} from "./slack";
+export type {
   GmailAuthorizationUrlInput,
   GmailAuthorizationUrlResult,
   GmailAccountProfile,
@@ -108,6 +129,12 @@ export type {
   GmailOAuthStatePayload,
   GmailOAuthTokenResponse,
 } from "./gmail-oauth";
+export type {
+  SlackAuthorizationUrlInput,
+  SlackAuthorizationUrlResult,
+  SlackOAuthConfig,
+  SlackOAuthStatePayload,
+} from "./slack-oauth";
 export type { GmailThreadNormalizationResult } from "./gmail-normalization";
 export type {
   GmailMessage,
