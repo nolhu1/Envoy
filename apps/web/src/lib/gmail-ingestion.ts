@@ -21,6 +21,11 @@ import {
 } from "@envoy/db";
 
 import { getCurrentAppAuthContext } from "@/lib/app-auth";
+import {
+  buildFailedSyncMetadata,
+  buildSuccessfulSyncMetadata,
+  buildSyncInProgressMetadata,
+} from "@/lib/gmail-sync-checkpoint";
 
 type WorkspaceGmailIntegration = {
   id: string;
@@ -62,22 +67,19 @@ function isGmailIntegration(
   return metadata?.provider === "gmail";
 }
 
-function mergeJson(
-  current: unknown,
-  next: Record<string, unknown>,
-) {
-  if (isJsonObject(current)) {
-    return {
-      ...current,
-      ...next,
-    };
-  }
-
-  return next;
-}
-
 function toPrismaJsonValue(value: unknown) {
   return (value ?? null) as never;
+}
+
+function readRecentWindowDays(
+  connectorContext: ConnectorContext,
+) {
+  const config =
+    isJsonObject(connectorContext.config) ? connectorContext.config : null;
+
+  return typeof config?.recentSyncWindowDays === "number" && config.recentSyncWindowDays > 0
+    ? Math.floor(config.recentSyncWindowDays)
+    : 14;
 }
 
 function isOauthAuthMaterial(
@@ -273,11 +275,26 @@ export async function syncWorkspaceGmailIntegration(input: {
   }
 
   let connectorContext = resolvedConnectorContext;
+  const syncStartedAt = new Date();
+  const recentWindowDays = readRecentWindowDays(connectorContext);
+  const recentWindowStart = new Date(syncStartedAt);
+  recentWindowStart.setDate(recentWindowStart.getDate() - recentWindowDays);
 
   await prisma.integration.update({
     where: { id: input.integrationId },
     data: {
-      status: "SYNCING",
+      status: "SYNC_IN_PROGRESS",
+      platformMetadataJson: toPrismaJsonValue(buildSyncInProgressMetadata({
+        currentMetadata: (
+          await prisma.integration.findUnique({
+            where: { id: input.integrationId },
+            select: { platformMetadataJson: true },
+          })
+        )?.platformMetadataJson,
+        syncedAt: syncStartedAt,
+        recentWindowStart,
+        recentWindowEnd: syncStartedAt,
+      })),
     },
   });
 
@@ -345,22 +362,26 @@ export async function syncWorkspaceGmailIntegration(input: {
       data: {
         status: "CONNECTED",
         lastSyncedAt: now,
-        platformMetadataJson: toPrismaJsonValue(mergeJson(
-          (await prisma.integration.findUnique({
-            where: { id: input.integrationId },
-            select: { platformMetadataJson: true },
-          }))?.platformMetadataJson,
-          {
-            lastSyncCursor: gmailSync.nextCursor ?? null,
-            lastSyncHasMore: gmailSync.hasMore,
-            lastSyncThreadCount: gmailSync.threads.length,
-            lastSyncConversationCount: conversationCount,
-            lastSyncMessageCount: messageCount,
-            lastSyncAttachmentCount: attachmentCount,
-            lastSyncCompletedAt: now.toISOString(),
-            lastSyncDiagnostics: gmailSync.diagnosticsJson ?? null,
-          },
-        )),
+        platformMetadataJson: toPrismaJsonValue(buildSuccessfulSyncMetadata({
+          currentMetadata: (
+            await prisma.integration.findUnique({
+              where: { id: input.integrationId },
+              select: { platformMetadataJson: true },
+            })
+          )?.platformMetadataJson,
+          syncedAt: now,
+          recentWindowStart,
+          recentWindowEnd: now,
+          nextCursor: gmailSync.nextCursor ?? null,
+          hasMore: gmailSync.hasMore,
+          threadCount: gmailSync.threads.length,
+          conversationCount,
+          messageCount,
+          attachmentCount,
+          diagnosticsSummary: isJsonObject(gmailSync.diagnosticsJson)
+            ? gmailSync.diagnosticsJson
+            : null,
+        })),
       },
     });
 
@@ -378,17 +399,18 @@ export async function syncWorkspaceGmailIntegration(input: {
       where: { id: input.integrationId },
       data: {
         status: "ERROR",
-        platformMetadataJson: toPrismaJsonValue(mergeJson(
-          (await prisma.integration.findUnique({
-            where: { id: input.integrationId },
-            select: { platformMetadataJson: true },
-          }))?.platformMetadataJson,
-          {
-            lastSyncError:
-              error instanceof Error ? error.message : "Unknown Gmail sync error",
-            lastSyncFailedAt: new Date().toISOString(),
-          },
-        )),
+        platformMetadataJson: toPrismaJsonValue(buildFailedSyncMetadata({
+          currentMetadata: (
+            await prisma.integration.findUnique({
+              where: { id: input.integrationId },
+              select: { platformMetadataJson: true },
+            })
+          )?.platformMetadataJson,
+          failedAt: new Date(),
+          recentWindowStart,
+          recentWindowEnd: new Date(),
+          error,
+        })),
       },
     });
 

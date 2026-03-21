@@ -66,7 +66,7 @@ type SendableMessageRecord = {
       id: string;
       workspaceId: string;
       platform: "EMAIL" | "SLACK";
-      status: "PENDING" | "CONNECTED" | "SYNCING" | "ERROR" | "DISCONNECTED";
+      status: "PENDING" | "CONNECTED" | "SYNC_IN_PROGRESS" | "ERROR" | "DISCONNECTED";
       platformMetadataJson: unknown;
     };
     participants: Array<{
@@ -122,12 +122,6 @@ function isGmailUnauthorizedSendResult(result: ProviderSendExecutionResult) {
     typeof diagnostics.error === "string" &&
     diagnostics.error.includes("status 401")
   );
-}
-
-function mapPrismaIntegrationStatus(
-  status: SendableMessageRecord["conversation"]["integration"]["status"],
-) {
-  return status === "SYNCING" ? "SYNC_IN_PROGRESS" : status;
 }
 
 async function refreshGmailConnectorContext(
@@ -242,7 +236,7 @@ function assertSendableMessage(message: SendableMessageRecord) {
     throw new Error("The conversation does not map to a Gmail thread.");
   }
 
-  if (!canIntegrationSend(mapPrismaIntegrationStatus(message.conversation.integration.status))) {
+  if (!canIntegrationSend(message.conversation.integration.status)) {
     throw new Error("The Gmail integration is not currently send-capable.");
   }
 

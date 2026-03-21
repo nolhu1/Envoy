@@ -19,7 +19,7 @@ enum Platform {
 enum IntegrationStatus {
   PENDING
   CONNECTED
-  SYNCING
+  SYNC_IN_PROGRESS
   ERROR
   DISCONNECTED
 }
