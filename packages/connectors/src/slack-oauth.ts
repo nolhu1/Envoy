@@ -1,16 +1,22 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { AUTH_MATERIAL_TYPES, type OAuthAuthMaterial } from "./credentials";
 import { SLACK_MVP_SCOPES, SLACK_PROVIDER } from "./slack";
 
 export const SLACK_OAUTH_AUTH_BASE_URL =
   "https://slack.com/oauth/v2/authorize";
 export const SLACK_OAUTH_DEFAULT_STATE_TTL_SECONDS = 10 * 60;
+export const SLACK_OAUTH_ACCESS_URL = "https://slack.com/api/oauth.v2.access";
+export const SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test";
 
 const SLACK_OAUTH_CLIENT_ID_ENV = "SLACK_OAUTH_CLIENT_ID";
+const SLACK_OAUTH_CLIENT_SECRET_ENV = "SLACK_OAUTH_CLIENT_SECRET";
 const SLACK_OAUTH_REDIRECT_URI_ENV = "SLACK_OAUTH_REDIRECT_URI";
 const SLACK_OAUTH_STATE_SECRET_ENV = "SLACK_OAUTH_STATE_SECRET";
 const SLACK_OAUTH_STATE_TTL_ENV = "SLACK_OAUTH_STATE_TTL_SECONDS";
 const SLACK_OAUTH_AUTH_BASE_URL_ENV = "SLACK_OAUTH_AUTH_BASE_URL";
+const SLACK_OAUTH_ACCESS_URL_ENV = "SLACK_OAUTH_ACCESS_URL";
+const SLACK_AUTH_TEST_URL_ENV = "SLACK_AUTH_TEST_URL";
 
 export type SlackOAuthStatePayload = {
   workspaceId: string;
@@ -23,8 +29,11 @@ export type SlackOAuthStatePayload = {
 
 export type SlackOAuthConfig = {
   clientId: string;
+  clientSecret: string;
   redirectUri: string;
   authorizationBaseUrl: string;
+  accessUrl: string;
+  authTestUrl: string;
   stateSecret: string;
   stateTtlSeconds: number;
   scopes: readonly string[];
@@ -40,6 +49,37 @@ export type SlackAuthorizationUrlResult = {
   authorizationUrl: string;
   state: string;
   statePayload: SlackOAuthStatePayload;
+};
+
+export type SlackOAuthAccessResponse = {
+  ok: boolean;
+  access_token?: string;
+  token_type?: string;
+  scope?: string;
+  bot_user_id?: string;
+  app_id?: string;
+  team?: {
+    id?: string;
+    name?: string;
+  };
+  enterprise?: {
+    id?: string;
+    name?: string;
+  };
+  error?: string;
+};
+
+export type SlackWorkspaceIdentity = {
+  teamId: string;
+  teamName?: string | null;
+  workspaceUrl?: string | null;
+  botUserId?: string | null;
+  userId?: string | null;
+};
+
+export type SlackOAuthExchangeResult = {
+  authMaterial: OAuthAuthMaterial;
+  accessResponse: SlackOAuthAccessResponse;
 };
 
 type SignedStateEnvelope = {
@@ -89,9 +129,14 @@ export function getSlackOAuthConfig(): SlackOAuthConfig {
 
   return {
     clientId: getRequiredEnv(SLACK_OAUTH_CLIENT_ID_ENV),
+    clientSecret: getRequiredEnv(SLACK_OAUTH_CLIENT_SECRET_ENV),
     redirectUri: getRequiredEnv(SLACK_OAUTH_REDIRECT_URI_ENV),
     authorizationBaseUrl:
       process.env[SLACK_OAUTH_AUTH_BASE_URL_ENV] ?? SLACK_OAUTH_AUTH_BASE_URL,
+    accessUrl:
+      process.env[SLACK_OAUTH_ACCESS_URL_ENV] ?? SLACK_OAUTH_ACCESS_URL,
+    authTestUrl:
+      process.env[SLACK_AUTH_TEST_URL_ENV] ?? SLACK_AUTH_TEST_URL,
     stateSecret: getRequiredEnv(SLACK_OAUTH_STATE_SECRET_ENV),
     stateTtlSeconds: parsedTtl,
     scopes: SLACK_MVP_SCOPES,
@@ -208,5 +253,91 @@ export function buildSlackAuthorizationUrl(
     authorizationUrl: url.toString(),
     state,
     statePayload,
+  };
+}
+
+async function readJsonResponse<T>(response: Response) {
+  const text = await response.text();
+
+  if (!text) {
+    return null as T | null;
+  }
+
+  return JSON.parse(text) as T;
+}
+
+export async function exchangeSlackAuthorizationCode(input: {
+  code: string;
+  redirectUri?: string;
+}): Promise<SlackOAuthExchangeResult> {
+  const config = getSlackOAuthConfig();
+  const response = await fetch(config.accessUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      code: input.code,
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      redirect_uri: input.redirectUri ?? config.redirectUri,
+    }),
+    cache: "no-store",
+  });
+  const accessResponse = await readJsonResponse<SlackOAuthAccessResponse>(response);
+
+  if (!response.ok || !accessResponse?.ok || !accessResponse.access_token) {
+    throw new Error("Slack OAuth code exchange failed.");
+  }
+
+  return {
+    authMaterial: {
+      type: AUTH_MATERIAL_TYPES.OAUTH,
+      accessToken: accessResponse.access_token,
+      refreshToken: null,
+      expiresAt: null,
+      scopes: accessResponse.scope ? accessResponse.scope.split(",") : [...SLACK_MVP_SCOPES],
+      providerAccountId: accessResponse.team?.id ?? null,
+      tokenType: accessResponse.token_type ?? "bot",
+      idToken: null,
+    },
+    accessResponse,
+  };
+}
+
+export async function fetchSlackWorkspaceIdentity(
+  accessToken: string,
+  options?: {
+    botUserId?: string | null;
+  },
+): Promise<SlackWorkspaceIdentity> {
+  const config = getSlackOAuthConfig();
+  const response = await fetch(config.authTestUrl, {
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+    },
+    cache: "no-store",
+  });
+  const authTest = await readJsonResponse<{
+    ok?: boolean;
+    error?: string;
+    url?: string;
+    team?: string;
+    user?: string;
+    team_id?: string;
+    user_id?: string;
+    bot_id?: string;
+  }>(response);
+
+  if (!response.ok || !authTest?.ok || !authTest.team_id) {
+    throw new Error("Unable to fetch Slack workspace identity.");
+  }
+
+  return {
+    teamId: authTest.team_id,
+    teamName: authTest.team ?? null,
+    workspaceUrl: authTest.url ?? null,
+    botUserId: authTest.bot_id ?? options?.botUserId ?? null,
+    userId: authTest.user_id ?? null,
   };
 }

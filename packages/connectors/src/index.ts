@@ -41,11 +41,15 @@ export {
 } from "./gmail-oauth";
 export {
   SLACK_OAUTH_AUTH_BASE_URL,
+  SLACK_AUTH_TEST_URL,
+  SLACK_OAUTH_ACCESS_URL,
   SLACK_OAUTH_DEFAULT_STATE_TTL_SECONDS,
   buildSlackAuthorizationUrl,
   createSlackOAuthStatePayload,
   decodeAndVerifySlackOAuthState,
   decodeVerifyAndValidateSlackOAuthState,
+  exchangeSlackAuthorizationCode,
+  fetchSlackWorkspaceIdentity,
   getSlackOAuthConfig,
   signAndEncodeSlackOAuthState,
   validateSlackOAuthStatePayload,
@@ -130,10 +134,13 @@ export type {
   GmailOAuthTokenResponse,
 } from "./gmail-oauth";
 export type {
+  SlackOAuthAccessResponse,
   SlackAuthorizationUrlInput,
   SlackAuthorizationUrlResult,
   SlackOAuthConfig,
+  SlackOAuthExchangeResult,
   SlackOAuthStatePayload,
+  SlackWorkspaceIdentity,
 } from "./slack-oauth";
 export type { GmailThreadNormalizationResult } from "./gmail-normalization";
 export type {

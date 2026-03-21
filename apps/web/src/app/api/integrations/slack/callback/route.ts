@@ -1,7 +1,7 @@
 import {
-  decodeVerifyAndValidateGmailOAuthState,
-  exchangeGmailAuthorizationCode,
-  fetchGmailAccountProfile,
+  decodeVerifyAndValidateSlackOAuthState,
+  exchangeSlackAuthorizationCode,
+  fetchSlackWorkspaceIdentity,
 } from "@envoy/connectors";
 import { createSecret, getPrisma, rotateSecret } from "@envoy/db";
 import { NextResponse } from "next/server";
@@ -10,7 +10,7 @@ import { getCurrentAppAuthContext } from "@/lib/app-auth";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getWorkspaceByIdForCurrentUser } from "@/lib/workspace";
 
-const GMAIL_SECRET_TYPE = "gmail_oauth";
+const SLACK_SECRET_TYPE = "slack_oauth";
 const SETTINGS_PATH = "/settings/workspace";
 
 function getRequestOrigin(request: Request) {
@@ -43,7 +43,7 @@ function buildSettingsRedirect(request: Request, params?: URLSearchParams) {
 
 function buildErrorRedirect(request: Request, message: string) {
   const params = new URLSearchParams({
-    gmail: "error",
+    slack: "error",
     message,
   });
 
@@ -52,7 +52,7 @@ function buildErrorRedirect(request: Request, message: string) {
 
 function buildSuccessRedirect(request: Request) {
   const params = new URLSearchParams({
-    gmail: "connected",
+    slack: "connected",
   });
 
   return buildSettingsRedirect(request, params);
@@ -65,11 +65,11 @@ export async function GET(request: Request) {
   const oauthError = url.searchParams.get("error");
 
   if (oauthError) {
-    return buildErrorRedirect(request, "Google OAuth connection was denied.");
+    return buildErrorRedirect(request, "Slack OAuth install was denied.");
   }
 
   if (!code || !state) {
-    return buildErrorRedirect(request, "Missing Gmail OAuth callback parameters.");
+    return buildErrorRedirect(request, "Missing Slack OAuth callback parameters.");
   }
 
   const authContext = await getCurrentAppAuthContext();
@@ -88,13 +88,13 @@ export async function GET(request: Request) {
   let integrationId: string | null = null;
 
   try {
-    const validatedState = decodeVerifyAndValidateGmailOAuthState(state);
+    const validatedState = decodeVerifyAndValidateSlackOAuthState(state);
 
     if (
       validatedState.workspaceId !== authContext.workspaceId ||
       validatedState.initiatingUserId !== authContext.userId
     ) {
-      throw new Error("Gmail OAuth state does not match the current session.");
+      throw new Error("Slack OAuth state does not match the current session.");
     }
 
     const workspace = await getWorkspaceByIdForCurrentUser(validatedState.workspaceId);
@@ -103,23 +103,26 @@ export async function GET(request: Request) {
       throw new Error("The current workspace could not be loaded.");
     }
 
-    const { authMaterial } = await exchangeGmailAuthorizationCode({ code });
-    const profile = await fetchGmailAccountProfile(authMaterial.accessToken);
+    const { authMaterial, accessResponse } = await exchangeSlackAuthorizationCode({ code });
+    const identity = await fetchSlackWorkspaceIdentity(authMaterial.accessToken, {
+      botUserId: accessResponse.bot_user_id ?? null,
+    });
     const prisma = getPrisma();
-    const externalAccountId = profile.emailAddress;
-    const displayName = profile.emailAddress;
+    const externalAccountId = identity.teamId;
+    const displayName = identity.teamName ?? identity.teamId;
     const platformMetadataJson = {
-      provider: "gmail",
-      connectedEmail: profile.emailAddress,
-      providerDisplayLabel: displayName,
+      provider: "slack",
+      slackTeamId: identity.teamId,
+      slackTeamName: identity.teamName ?? null,
+      slackWorkspaceUrl: identity.workspaceUrl ?? null,
+      slackBotUserId: identity.botUserId ?? null,
       grantedScopes: authMaterial.scopes ?? [],
-      gmailHistoryId: profile.historyId ?? null,
     };
 
     const existingIntegration = await prisma.integration.findFirst({
       where: {
         workspaceId: workspace.id,
-        platform: "EMAIL",
+        platform: "SLACK",
         externalAccountId,
         deletedAt: null,
       },
@@ -143,7 +146,7 @@ export async function GET(request: Request) {
       : await prisma.integration.create({
           data: {
             workspaceId: workspace.id,
-            platform: "EMAIL",
+            platform: "SLACK",
             externalAccountId,
             displayName,
             authType: "oauth",
@@ -173,14 +176,14 @@ export async function GET(request: Request) {
         secretRef: existingSecret.secretRef,
         workspaceId: workspace.id,
         integrationId: integration.id,
-        secretType: GMAIL_SECRET_TYPE,
+        secretType: SLACK_SECRET_TYPE,
         payload: authMaterial,
       });
     } else {
       await createSecret({
         workspaceId: workspace.id,
         integrationId: integration.id,
-        secretType: GMAIL_SECRET_TYPE,
+        secretType: SLACK_SECRET_TYPE,
         payload: authMaterial,
       });
     }
@@ -210,7 +213,7 @@ export async function GET(request: Request) {
         data: {
           status: "ERROR",
           platformMetadataJson: {
-            provider: "gmail",
+            provider: "slack",
             connectError: error instanceof Error ? error.message : "Unknown error",
           },
         },
@@ -219,7 +222,7 @@ export async function GET(request: Request) {
 
     return buildErrorRedirect(
       request,
-      error instanceof Error ? error.message : "Unable to complete Gmail connect.",
+      error instanceof Error ? error.message : "Unable to complete Slack install.",
     );
   }
 }

@@ -41,6 +41,7 @@ export default async function WorkspaceSettingsPage({
     : null;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const gmailStatus = readSearchParam(resolvedSearchParams?.gmail);
+  const slackStatus = readSearchParam(resolvedSearchParams?.slack);
   const gmailMessage = readSearchParam(resolvedSearchParams?.message);
   const gmailSyncStatus = readSearchParam(resolvedSearchParams?.gmailSync);
   const gmailSyncThreadCount = readSearchParam(resolvedSearchParams?.threadCount);
@@ -59,6 +60,19 @@ export default async function WorkspaceSettingsPage({
         {gmailStatus === "error" && gmailMessage ? (
           <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
             Gmail connect failed: {gmailMessage}
+          </section>
+        ) : null}
+
+        {slackStatus === "connected" ? (
+          <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Slack connected successfully. DM sync and outbound reply flows are
+            still pending.
+          </section>
+        ) : null}
+
+        {slackStatus === "error" && gmailMessage ? (
+          <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Slack connect failed: {gmailMessage}
           </section>
         ) : null}
 
@@ -183,17 +197,18 @@ export default async function WorkspaceSettingsPage({
               Integrations and workspace management
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
-              Start provider install flows for this workspace. Gmail callback
-              exchange is already wired, while Slack is currently start-flow
-              only.
+              Start provider install flows for this workspace. Gmail and Slack
+              callback exchange are wired, while Slack DM sync and send are
+              still pending.
             </p>
             {gmailIntegration ? (
               <div className="mt-6 flex flex-wrap items-center gap-3">
                 <div className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900">
-                  Gmail connected
-                  {gmailIntegration.externalAccountId
-                    ? `: ${gmailIntegration.externalAccountId}`
-                    : ""}
+                  {`Gmail connected${
+                    gmailIntegration.externalAccountId
+                      ? `: ${gmailIntegration.externalAccountId}`
+                      : ""
+                  }`}
                 </div>
                 <form action={syncGmailRecentThreadsAction}>
                   <button
