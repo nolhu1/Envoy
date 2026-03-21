@@ -1,4 +1,5 @@
 export { getPrisma } from "./client";
+export { createPrismaCanonicalPersistenceWriter } from "./inbound-writer";
 export {
   resolveConnectorContextForWorkspaceIntegration,
   resolveConnectorContextFromIntegration,

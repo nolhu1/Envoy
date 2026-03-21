@@ -12,6 +12,7 @@ import {
   fetchGmailRecentThreads,
   toGmailSyncResult,
 } from "./gmail-sync";
+import { refreshGmailOAuthAccessToken } from "./gmail-oauth";
 import {
   normalizeGmailConversationCandidate,
   normalizeGmailMessageCandidate,
@@ -111,18 +112,55 @@ export class GmailConnector implements Connector {
   }
 
   async refreshAuth(input: RefreshAuthInput): Promise<ConnectResult> {
+    const authMaterial = input.context.authMaterial;
+
+    if (!authMaterial || authMaterial.type !== AUTH_MATERIAL_TYPES.OAUTH) {
+      return {
+        externalAccountId: input.context.externalAccountId ?? null,
+        displayName: "Gmail",
+        status: INTEGRATION_STATUSES.ERROR,
+        authMaterial: null,
+        secretRef: input.context.secretRef ?? null,
+        platformMetadataJson: {
+          provider: GMAIL_PROVIDER,
+          refreshed: false,
+          error: "Missing Gmail OAuth auth material.",
+        },
+      };
+    }
+
+    if (!authMaterial.refreshToken) {
+      return {
+        externalAccountId: input.context.externalAccountId ?? null,
+        displayName: "Gmail",
+        status: INTEGRATION_STATUSES.ERROR,
+        authMaterial,
+        secretRef: input.context.secretRef ?? null,
+        platformMetadataJson: {
+          provider: GMAIL_PROVIDER,
+          refreshed: false,
+          error: "Missing Gmail OAuth refresh token.",
+        },
+      };
+    }
+
+    const refreshed = await refreshGmailOAuthAccessToken({
+      refreshToken: authMaterial.refreshToken,
+    });
+
     return {
       externalAccountId: input.context.externalAccountId ?? null,
       displayName: "Gmail",
-      status: input.context.authMaterial
-        ? INTEGRATION_STATUSES.CONNECTED
-        : INTEGRATION_STATUSES.ERROR,
-      authMaterial: input.context.authMaterial ?? null,
+      status: INTEGRATION_STATUSES.CONNECTED,
+      authMaterial: {
+        ...refreshed.authMaterial,
+        providerAccountId:
+          authMaterial.providerAccountId ?? input.context.externalAccountId ?? null,
+      },
       secretRef: input.context.secretRef ?? null,
       platformMetadataJson: {
         provider: GMAIL_PROVIDER,
-        refreshed: false,
-        stub: true,
+        refreshed: true,
       },
     };
   }

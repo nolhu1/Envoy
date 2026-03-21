@@ -103,9 +103,9 @@ function parseAddressList(value?: string | null): GmailParticipantAddress[] {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => {
-      const match = entry.match(/^(?:(?<name>.*)\s)?<(?<email>[^>]+)>$/);
-      const email = match?.groups?.email?.trim() ?? entry;
-      const displayName = match?.groups?.name?.trim().replace(/^"|"$/g, "") ?? null;
+      const match = entry.match(/^(?:(.*)\s)?<([^>]+)>$/);
+      const email = match?.[2]?.trim() ?? entry;
+      const displayName = match?.[1]?.trim().replace(/^"|"$/g, "") ?? null;
 
       return {
         displayName: displayName || null,

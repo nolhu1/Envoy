@@ -79,6 +79,11 @@ export type GmailOAuthExchangeResult = {
   tokenResponse: GmailOAuthTokenResponse;
 };
 
+export type GmailOAuthRefreshResult = {
+  authMaterial: OAuthAuthMaterial;
+  tokenResponse: GmailOAuthTokenResponse;
+};
+
 type SignedStateEnvelope = {
   payload: string;
   signature: string;
@@ -309,6 +314,48 @@ export async function exchangeGmailAuthorizationCode(input: {
       type: AUTH_MATERIAL_TYPES.OAUTH,
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token,
+      expiresAt: tokenResponse.expires_in
+        ? new Date(Date.now() + tokenResponse.expires_in * 1000)
+        : null,
+      scopes: tokenResponse.scope ? tokenResponse.scope.split(" ") : [...GMAIL_MVP_SCOPES],
+      providerAccountId: null,
+      tokenType: tokenResponse.token_type ?? null,
+      idToken: tokenResponse.id_token ?? null,
+    },
+    tokenResponse,
+  };
+}
+
+export async function refreshGmailOAuthAccessToken(input: {
+  refreshToken: string;
+}): Promise<GmailOAuthRefreshResult> {
+  const config = getGmailOAuthConfig();
+  const response = await fetch(config.tokenUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      refresh_token: input.refreshToken,
+      grant_type: "refresh_token",
+    }),
+    cache: "no-store",
+  });
+  const tokenResponse = await readJsonResponse<GmailOAuthTokenResponse & { error?: string }>(
+    response,
+  );
+
+  if (!response.ok || !tokenResponse?.access_token) {
+    throw new Error("Gmail OAuth refresh failed.");
+  }
+
+  return {
+    authMaterial: {
+      type: AUTH_MATERIAL_TYPES.OAUTH,
+      accessToken: tokenResponse.access_token,
+      refreshToken: input.refreshToken,
       expiresAt: tokenResponse.expires_in
         ? new Date(Date.now() + tokenResponse.expires_in * 1000)
         : null,

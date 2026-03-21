@@ -30,6 +30,7 @@ export {
   exchangeGmailAuthorizationCode,
   fetchGmailAccountProfile,
   getGmailOAuthConfig,
+  refreshGmailOAuthAccessToken,
   signAndEncodeGmailOAuthState,
   validateGmailOAuthStatePayload,
 } from "./gmail-oauth";
@@ -97,6 +98,7 @@ export type {
   GmailAccountProfile,
   GmailOAuthConfig,
   GmailOAuthExchangeResult,
+  GmailOAuthRefreshResult,
   GmailOAuthStatePayload,
   GmailOAuthTokenResponse,
 } from "./gmail-oauth";

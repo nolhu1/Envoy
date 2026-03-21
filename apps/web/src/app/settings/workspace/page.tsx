@@ -6,7 +6,11 @@ import {
   requirePermission,
 } from "@/lib/permissions";
 import { getCurrentWorkspace } from "@/lib/workspace";
-import { startGmailConnectAction } from "@/app/settings/workspace/actions";
+import {
+  startGmailConnectAction,
+  syncGmailRecentThreadsAction,
+} from "@/app/settings/workspace/actions";
+import { getCurrentWorkspaceGmailIntegration } from "@/lib/gmail-ingestion";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +35,15 @@ export default async function WorkspaceSettingsPage({
     PERMISSIONS.CONNECT_INTEGRATIONS,
   );
   const workspace = await getCurrentWorkspace();
+  const gmailIntegration = canManageIntegrations
+    ? await getCurrentWorkspaceGmailIntegration()
+    : null;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const gmailStatus = readSearchParam(resolvedSearchParams?.gmail);
   const gmailMessage = readSearchParam(resolvedSearchParams?.message);
+  const gmailSyncStatus = readSearchParam(resolvedSearchParams?.gmailSync);
+  const gmailSyncThreadCount = readSearchParam(resolvedSearchParams?.threadCount);
+  const gmailSyncMessageCount = readSearchParam(resolvedSearchParams?.messageCount);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-10">
@@ -48,6 +58,19 @@ export default async function WorkspaceSettingsPage({
         {gmailStatus === "error" && gmailMessage ? (
           <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
             Gmail connect failed: {gmailMessage}
+          </section>
+        ) : null}
+
+        {gmailSyncStatus === "completed" ? (
+          <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Gmail sync completed. Threads fetched: {gmailSyncThreadCount ?? "0"}.
+            Messages written: {gmailSyncMessageCount ?? "0"}.
+          </section>
+        ) : null}
+
+        {gmailSyncStatus === "error" && gmailMessage ? (
+          <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Gmail sync failed: {gmailMessage}
           </section>
         ) : null}
 
@@ -163,14 +186,33 @@ export default async function WorkspaceSettingsPage({
               exchange, token storage, and integration persistence are still
               pending.
             </p>
-            <form action={startGmailConnectAction} className="mt-6">
-              <button
-                type="submit"
-                className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
-              >
-                Connect Gmail
-              </button>
-            </form>
+            {gmailIntegration ? (
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <div className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900">
+                  Gmail connected
+                  {gmailIntegration.externalAccountId
+                    ? `: ${gmailIntegration.externalAccountId}`
+                    : ""}
+                </div>
+                <form action={syncGmailRecentThreadsAction}>
+                  <button
+                    type="submit"
+                    className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                  >
+                    Sync Recent Gmail Threads
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <form action={startGmailConnectAction} className="mt-6">
+                <button
+                  type="submit"
+                  className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                >
+                  Connect Gmail
+                </button>
+              </form>
+            )}
           </section>
         ) : null}
       </div>
