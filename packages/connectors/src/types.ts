@@ -164,6 +164,7 @@ export type SendResult = {
   sentAt?: Date | null;
   providerResponseJson?: JsonValue | null;
   platformMetadataJson?: JsonValue | null;
+  diagnosticsJson?: JsonValue | null;
 };
 
 export type SyncResult = {

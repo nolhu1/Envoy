@@ -12,13 +12,13 @@ import {
   fetchGmailRecentThreads,
   toGmailSyncResult,
 } from "./gmail-sync";
+import { sendGmailReply } from "./gmail-send";
 import { refreshGmailOAuthAccessToken } from "./gmail-oauth";
 import {
   normalizeGmailConversationCandidate,
   normalizeGmailMessageCandidate,
 } from "./gmail-normalization";
 import { INTEGRATION_STATUSES } from "./lifecycle";
-import { OUTBOUND_SEND_STATUSES } from "./outbound";
 import type {
   ConnectResult,
   ConnectorContext,
@@ -185,20 +185,7 @@ export class GmailConnector implements Connector {
   }
 
   async sendMessage(input: OutboundSendInput): Promise<SendResult> {
-    return {
-      status: OUTBOUND_SEND_STATUSES.FAILED,
-      externalMessageId: null,
-      sentAt: null,
-      providerResponseJson: {
-        provider: GMAIL_PROVIDER,
-        threadId: input.conversation.externalConversationId,
-        sendImplemented: false,
-      },
-      platformMetadataJson: {
-        provider: GMAIL_PROVIDER,
-        replyToExternalMessageId: input.replyToExternalMessageId ?? null,
-      },
-    };
+    return sendGmailReply(input);
   }
 
   async fetchConversation(

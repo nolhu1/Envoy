@@ -53,6 +53,12 @@ export {
   toGmailSyncResult,
 } from "./gmail-sync";
 export {
+  GMAIL_SEND_MESSAGE_URL,
+  buildGmailReplyPayload,
+  executeGmailSend,
+  sendGmailReply,
+} from "./gmail-send";
+export {
   DEDUPE_STATUSES,
   INBOUND_SOURCE_TYPES,
   INBOUND_STAGES,
@@ -112,6 +118,11 @@ export type {
   GmailThread,
   GmailThreadListItem,
 } from "./gmail-sync";
+export type {
+  GmailProviderSendPayload,
+  GmailSendApiResponse,
+  GmailSendExecutionInput,
+} from "./gmail-send";
 export type {
   ApiKeyAuthMaterial,
   AuthMaterialType,
