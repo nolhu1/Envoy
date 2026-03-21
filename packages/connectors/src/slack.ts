@@ -24,8 +24,8 @@ import type {
 
 export const SLACK_PROVIDER = "slack";
 export const SLACK_MVP_SCOPES = [
-  "conversations:read",
-  "conversations.history",
+  "im:read",
+  "im:history",
   "chat:write",
   "users:read",
 ] as const;

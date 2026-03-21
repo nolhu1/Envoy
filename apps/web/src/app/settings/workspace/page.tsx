@@ -8,6 +8,7 @@ import {
 import { getCurrentWorkspace } from "@/lib/workspace";
 import {
   startGmailConnectAction,
+  startSlackConnectAction,
   syncGmailRecentThreadsAction,
 } from "@/app/settings/workspace/actions";
 import { getCurrentWorkspaceGmailIntegration } from "@/lib/gmail-ingestion";
@@ -182,9 +183,9 @@ export default async function WorkspaceSettingsPage({
               Integrations and workspace management
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
-              Start the Gmail OAuth connect flow for this workspace. Callback
-              exchange, token storage, and integration persistence are still
-              pending.
+              Start provider install flows for this workspace. Gmail callback
+              exchange is already wired, while Slack is currently start-flow
+              only.
             </p>
             {gmailIntegration ? (
               <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -202,16 +203,34 @@ export default async function WorkspaceSettingsPage({
                     Sync Recent Gmail Threads
                   </button>
                 </form>
+                <form action={startSlackConnectAction}>
+                  <button
+                    type="submit"
+                    className="inline-flex rounded-full border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-slate-50"
+                  >
+                    Connect Slack
+                  </button>
+                </form>
               </div>
             ) : (
-              <form action={startGmailConnectAction} className="mt-6">
-                <button
-                  type="submit"
-                  className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
-                >
-                  Connect Gmail
-                </button>
-              </form>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <form action={startGmailConnectAction}>
+                  <button
+                    type="submit"
+                    className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                  >
+                    Connect Gmail
+                  </button>
+                </form>
+                <form action={startSlackConnectAction}>
+                  <button
+                    type="submit"
+                    className="inline-flex rounded-full border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-slate-50"
+                  >
+                    Connect Slack
+                  </button>
+                </form>
+              </div>
             )}
           </section>
         ) : null}

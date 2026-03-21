@@ -1,6 +1,9 @@
 "use server";
 
-import { buildGmailAuthorizationUrl } from "@envoy/connectors";
+import {
+  buildGmailAuthorizationUrl,
+  buildSlackAuthorizationUrl,
+} from "@envoy/connectors";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
@@ -26,6 +29,24 @@ export async function startGmailConnectAction() {
     workspaceId: workspace.id,
     initiatingUserId: authContext.userId,
     loginHint: authContext.email,
+  });
+
+  redirect(authorizationUrl);
+}
+
+export async function startSlackConnectAction() {
+  const authContext = await requireAuthenticatedEntryPoint({
+    permission: PERMISSIONS.CONNECT_INTEGRATIONS,
+  });
+  const workspace = await getCurrentWorkspace();
+
+  if (!workspace || workspace.id !== authContext.workspaceId) {
+    throw new Error("The current workspace could not be loaded.");
+  }
+
+  const { authorizationUrl } = buildSlackAuthorizationUrl({
+    workspaceId: workspace.id,
+    initiatingUserId: authContext.userId,
   });
 
   redirect(authorizationUrl);
