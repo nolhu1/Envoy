@@ -65,6 +65,7 @@ export {
   normalizeSlackAttachmentCandidates,
   normalizeSlackConversationCandidate,
   normalizeSlackConversationCandidateFromRaw,
+  normalizeSlackConversationGroups,
   normalizeSlackConversationSyncItem,
   normalizeSlackMessageCandidate,
   normalizeSlackMessageCandidateFromRaw,

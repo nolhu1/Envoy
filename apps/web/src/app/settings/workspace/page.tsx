@@ -10,8 +10,10 @@ import {
   startGmailConnectAction,
   startSlackConnectAction,
   syncGmailRecentThreadsAction,
+  syncSlackRecentDmsAction,
 } from "@/app/settings/workspace/actions";
 import { getCurrentWorkspaceGmailIntegration } from "@/lib/gmail-ingestion";
+import { getCurrentWorkspaceSlackIntegration } from "@/lib/slack-ingestion";
 
 export const dynamic = "force-dynamic";
 
@@ -39,13 +41,20 @@ export default async function WorkspaceSettingsPage({
   const gmailIntegration = canManageIntegrations
     ? await getCurrentWorkspaceGmailIntegration()
     : null;
+  const slackIntegration = canManageIntegrations
+    ? await getCurrentWorkspaceSlackIntegration()
+    : null;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const gmailStatus = readSearchParam(resolvedSearchParams?.gmail);
   const slackStatus = readSearchParam(resolvedSearchParams?.slack);
   const gmailMessage = readSearchParam(resolvedSearchParams?.message);
   const gmailSyncStatus = readSearchParam(resolvedSearchParams?.gmailSync);
+  const slackSyncStatus = readSearchParam(resolvedSearchParams?.slackSync);
   const gmailSyncThreadCount = readSearchParam(resolvedSearchParams?.threadCount);
   const gmailSyncMessageCount = readSearchParam(resolvedSearchParams?.messageCount);
+  const slackSyncDmConversationCount = readSearchParam(
+    resolvedSearchParams?.dmConversationCount,
+  );
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-10">
@@ -65,8 +74,8 @@ export default async function WorkspaceSettingsPage({
 
         {slackStatus === "connected" ? (
           <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
-            Slack connected successfully. DM sync and outbound reply flows are
-            still pending.
+            Slack connected successfully. Recent DM sync is available from this
+            page.
           </section>
         ) : null}
 
@@ -86,6 +95,19 @@ export default async function WorkspaceSettingsPage({
         {gmailSyncStatus === "error" && gmailMessage ? (
           <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
             Gmail sync failed: {gmailMessage}
+          </section>
+        ) : null}
+
+        {slackSyncStatus === "completed" ? (
+          <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Slack sync completed. DMs fetched: {slackSyncDmConversationCount ?? "0"}.
+            Messages written: {gmailSyncMessageCount ?? "0"}.
+          </section>
+        ) : null}
+
+        {slackSyncStatus === "error" && gmailMessage ? (
+          <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Slack sync failed: {gmailMessage}
           </section>
         ) : null}
 
@@ -198,34 +220,69 @@ export default async function WorkspaceSettingsPage({
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
               Start provider install flows for this workspace. Gmail and Slack
-              callback exchange are wired, while Slack DM sync and send are
-              still pending.
+              callback exchange are wired. Gmail thread sync and Slack DM sync
+              are available as manual admin actions.
             </p>
-            {gmailIntegration ? (
+            {gmailIntegration || slackIntegration ? (
               <div className="mt-6 flex flex-wrap items-center gap-3">
-                <div className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900">
-                  {`Gmail connected${
-                    gmailIntegration.externalAccountId
-                      ? `: ${gmailIntegration.externalAccountId}`
-                      : ""
-                  }`}
-                </div>
-                <form action={syncGmailRecentThreadsAction}>
-                  <button
-                    type="submit"
-                    className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
-                  >
-                    Sync Recent Gmail Threads
-                  </button>
-                </form>
-                <form action={startSlackConnectAction}>
-                  <button
-                    type="submit"
-                    className="inline-flex rounded-full border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-slate-50"
-                  >
-                    Connect Slack
-                  </button>
-                </form>
+                {gmailIntegration ? (
+                  <>
+                    <div className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900">
+                      {`Gmail connected${
+                        gmailIntegration.externalAccountId
+                          ? `: ${gmailIntegration.externalAccountId}`
+                          : ""
+                      }`}
+                    </div>
+                    <form action={syncGmailRecentThreadsAction}>
+                      <button
+                        type="submit"
+                        className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                      >
+                        Sync Recent Gmail Threads
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <form action={startGmailConnectAction}>
+                    <button
+                      type="submit"
+                      className="inline-flex rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                    >
+                      Connect Gmail
+                    </button>
+                  </form>
+                )}
+                {slackIntegration ? (
+                  <>
+                    <div className="rounded-full border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-medium text-cyan-900">
+                      {`Slack connected${
+                        slackIntegration.displayName
+                          ? `: ${slackIntegration.displayName}`
+                          : slackIntegration.externalAccountId
+                            ? `: ${slackIntegration.externalAccountId}`
+                            : ""
+                      }`}
+                    </div>
+                    <form action={syncSlackRecentDmsAction}>
+                      <button
+                        type="submit"
+                        className="inline-flex rounded-full border border-cyan-300 px-5 py-2.5 text-sm font-medium text-cyan-950 transition hover:border-cyan-400 hover:bg-cyan-50"
+                      >
+                        Sync Recent Slack DMs
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <form action={startSlackConnectAction}>
+                    <button
+                      type="submit"
+                      className="inline-flex rounded-full border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-slate-50"
+                    >
+                      Connect Slack
+                    </button>
+                  </form>
+                )}
               </div>
             ) : (
               <div className="mt-6 flex flex-wrap gap-3">

@@ -319,6 +319,9 @@ export function normalizeSlackParticipantCandidates(
 export function normalizeSlackAttachmentCandidates(
   context: ConnectorContext,
   message: SlackMessage,
+  options?: {
+    externalConversationId?: string | null;
+  },
 ): NormalizedAttachmentCandidate[] {
   const identity = computeSlackMessageIdentity(context, message);
 
@@ -337,6 +340,7 @@ export function normalizeSlackAttachmentCandidates(
       channelId: identity.channelId,
       threadTs: identity.threadTs,
       messageTs: identity.messageTs,
+      externalConversationId: options?.externalConversationId ?? identity.externalConversationId,
       fileType: file.filetype ?? null,
       prettyType: file.pretty_type ?? null,
     },
@@ -346,13 +350,18 @@ export function normalizeSlackAttachmentCandidates(
 export function normalizeSlackMessageCandidate(
   context: ConnectorContext,
   message: SlackMessage,
+  options?: {
+    externalConversationId?: string | null;
+  },
 ): NormalizedMessageCandidate {
   const identity = computeSlackMessageIdentity(context, message);
   const sentAt = parseSlackTimestamp(identity.messageTs);
+  const externalConversationId =
+    options?.externalConversationId ?? identity.externalConversationId;
 
   return {
     externalMessageId: identity.externalMessageId,
-    externalConversationId: identity.externalConversationId,
+    externalConversationId,
     platform: context.platform,
     senderType: identity.senderType,
     direction: identity.direction,
@@ -380,7 +389,9 @@ export function normalizeSlackMessageCandidate(
         slackMessage: null,
       } satisfies SlackProviderPayloadPlaceholder,
     },
-    attachments: normalizeSlackAttachmentCandidates(context, message),
+    attachments: normalizeSlackAttachmentCandidates(context, message, {
+      externalConversationId,
+    }),
   };
 }
 
@@ -410,6 +421,67 @@ export function normalizeSlackConversationSyncItem(
     messages,
     attachments,
   };
+}
+
+export function normalizeSlackConversationGroups(
+  context: ConnectorContext,
+  item: SlackDmConversationSyncItem,
+  users: SlackUser[],
+): SlackConversationNormalizationResult[] {
+  const rootConversationId = createSlackConversationId(item.conversation.id, null);
+  const rootMessages = item.messages.map((message) =>
+    normalizeSlackMessageCandidate(context, message, {
+      externalConversationId: rootConversationId,
+    }),
+  );
+  const rootAttachments = rootMessages.flatMap((message) => message.attachments ?? []);
+  const groups: SlackConversationNormalizationResult[] = [
+    {
+      conversation: normalizeSlackConversationCandidate(context, item.conversation, {
+        messages: item.messages,
+        rawPayloadJson: item.rawPayloadJson,
+      }),
+      participants: normalizeSlackParticipantCandidates(context, {
+        users,
+        messages: [...item.messages, ...item.threads.flatMap((thread) => thread.replies)],
+      }),
+      messages: rootMessages,
+      attachments: rootAttachments,
+    },
+  ];
+
+  for (const thread of item.threads) {
+    const threadConversationId = createSlackConversationId(
+      item.conversation.id,
+      thread.parentMessageTs,
+    );
+    const parentMessage =
+      item.messages.find((message) => message.ts === thread.parentMessageTs) ?? null;
+    const threadSourceMessages = parentMessage
+      ? [parentMessage, ...thread.replies]
+      : [...thread.replies];
+    const threadMessages = threadSourceMessages.map((message) =>
+      normalizeSlackMessageCandidate(context, message, {
+        externalConversationId: threadConversationId,
+      }),
+    );
+
+    groups.push({
+      conversation: normalizeSlackConversationCandidate(context, item.conversation, {
+        messages: threadSourceMessages,
+        rawPayloadJson: thread.rawPayloadJson,
+        threadTs: thread.parentMessageTs,
+      }),
+      participants: normalizeSlackParticipantCandidates(context, {
+        users,
+        messages: threadSourceMessages,
+      }),
+      messages: threadMessages,
+      attachments: threadMessages.flatMap((message) => message.attachments ?? []),
+    });
+  }
+
+  return groups;
 }
 
 export function normalizeSlackConversationCandidateFromRaw(

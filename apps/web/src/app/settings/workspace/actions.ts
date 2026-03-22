@@ -14,6 +14,10 @@ import {
   getCurrentWorkspaceGmailIntegration,
   syncWorkspaceGmailIntegration,
 } from "@/lib/gmail-ingestion";
+import {
+  getCurrentWorkspaceSlackIntegration,
+  syncWorkspaceSlackIntegration,
+} from "@/lib/slack-ingestion";
 
 export async function startGmailConnectAction() {
   const authContext = await requireAuthenticatedEntryPoint({
@@ -57,7 +61,7 @@ function toSyncErrorMessage(error: unknown) {
     return error.message;
   }
 
-  return "Unable to sync Gmail.";
+  return "Unable to sync integration.";
 }
 
 export async function syncGmailRecentThreadsAction() {
@@ -92,5 +96,40 @@ export async function syncGmailRecentThreadsAction() {
 
     const message = toSyncErrorMessage(error);
     redirect(`/settings/workspace?gmailSync=error&message=${encodeURIComponent(message)}`);
+  }
+}
+
+export async function syncSlackRecentDmsAction() {
+  const authContext = await requireAuthenticatedEntryPoint({
+    permission: PERMISSIONS.CONNECT_INTEGRATIONS,
+  });
+  const workspace = await getCurrentWorkspace();
+
+  if (!workspace || workspace.id !== authContext.workspaceId) {
+    throw new Error("The current workspace could not be loaded.");
+  }
+
+  const integration = await getCurrentWorkspaceSlackIntegration();
+
+  if (!integration || integration.workspaceId !== workspace.id) {
+    throw new Error("No Slack integration is connected for this workspace.");
+  }
+
+  try {
+    const result = await syncWorkspaceSlackIntegration({
+      workspaceId: workspace.id,
+      integrationId: integration.id,
+    });
+
+    redirect(
+      `/settings/workspace?slackSync=completed&dmConversationCount=${result.dmConversationCount}&messageCount=${result.messageCount}`,
+    );
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+
+    const message = toSyncErrorMessage(error);
+    redirect(`/settings/workspace?slackSync=error&message=${encodeURIComponent(message)}`);
   }
 }
