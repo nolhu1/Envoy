@@ -9,6 +9,11 @@ import type {
 } from "./connector";
 import { INTEGRATION_STATUSES } from "./lifecycle";
 import { OUTBOUND_SEND_STATUSES } from "./outbound";
+import {
+  buildSlackRecentDmSyncInput,
+  fetchSlackRecentDms,
+  toSlackSyncResult,
+} from "./slack-sync";
 import type {
   ConnectResult,
   ConnectorContext,
@@ -132,18 +137,11 @@ export class SlackConnector implements Connector {
   }
 
   async syncHistory(_input: SyncInput): Promise<SyncResult> {
-    return {
-      batch: buildEmptyBatch({
-        provider: SLACK_PROVIDER,
-        syncImplemented: false,
-      }),
-      nextCursor: null,
-      hasMore: false,
-      diagnosticsJson: {
-        provider: SLACK_PROVIDER,
-        syncImplemented: false,
-      },
-    };
+    const slackSyncResult = await fetchSlackRecentDms(
+      buildSlackRecentDmSyncInput(_input),
+    );
+
+    return toSlackSyncResult(slackSyncResult);
   }
 
   async sendMessage(input: OutboundSendInput): Promise<SendResult> {

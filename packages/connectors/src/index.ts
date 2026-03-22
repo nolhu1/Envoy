@@ -73,6 +73,23 @@ export {
   toGmailSyncResult,
 } from "./gmail-sync";
 export {
+  SLACK_CONVERSATIONS_HISTORY_URL,
+  SLACK_CONVERSATIONS_LIST_URL,
+  SLACK_CONVERSATIONS_REPLIES_URL,
+  SLACK_DM_CONVERSATION_TYPES,
+  SLACK_RECENT_SYNC_DEFAULT_CONVERSATION_LIMIT,
+  SLACK_RECENT_SYNC_DEFAULT_MESSAGE_LIMIT,
+  SLACK_RECENT_SYNC_DEFAULT_REPLY_LIMIT,
+  SLACK_RECENT_SYNC_DEFAULT_WINDOW_DAYS,
+  SLACK_RECENT_SYNC_MAX_CONVERSATION_LIMIT,
+  SLACK_RECENT_SYNC_MAX_MESSAGE_LIMIT,
+  SLACK_RECENT_SYNC_MAX_REPLY_LIMIT,
+  SLACK_USERS_INFO_URL,
+  buildSlackRecentDmSyncInput,
+  fetchSlackRecentDms,
+  toSlackSyncResult,
+} from "./slack-sync";
+export {
   GMAIL_SEND_MESSAGE_URL,
   buildGmailReplyPayload,
   executeGmailSend,
@@ -152,6 +169,17 @@ export type {
   GmailThread,
   GmailThreadListItem,
 } from "./gmail-sync";
+export type {
+  SlackDmConversation,
+  SlackDmConversationSyncItem,
+  SlackDmThread,
+  SlackMessage,
+  SlackMessageFile,
+  SlackRecentDmSyncInput,
+  SlackRecentDmSyncResult,
+  SlackUser,
+  SlackUserProfile,
+} from "./slack-sync";
 export type {
   GmailProviderSendPayload,
   GmailSendApiResponse,
