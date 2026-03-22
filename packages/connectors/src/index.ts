@@ -106,6 +106,12 @@ export {
   sendGmailReply,
 } from "./gmail-send";
 export {
+  SLACK_CHAT_POST_MESSAGE_URL,
+  buildSlackReplyPayload,
+  executeSlackSend,
+  sendSlackReply,
+} from "./slack-send";
+export {
   DEDUPE_STATUSES,
   INBOUND_SOURCE_TYPES,
   INBOUND_STAGES,
@@ -196,6 +202,11 @@ export type {
   GmailSendApiResponse,
   GmailSendExecutionInput,
 } from "./gmail-send";
+export type {
+  SlackProviderSendPayload,
+  SlackSendApiResponse,
+  SlackSendExecutionInput,
+} from "./slack-send";
 export type {
   ApiKeyAuthMaterial,
   AuthMaterialType,

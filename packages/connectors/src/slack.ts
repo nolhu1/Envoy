@@ -13,6 +13,7 @@ import {
   normalizeSlackConversationCandidateFromRaw,
   normalizeSlackMessageCandidateFromRaw,
 } from "./slack-normalization";
+import { sendSlackReply } from "./slack-send";
 import {
   buildSlackRecentDmSyncInput,
   fetchSlackRecentDms,
@@ -149,25 +150,7 @@ export class SlackConnector implements Connector {
   }
 
   async sendMessage(input: OutboundSendInput): Promise<SendResult> {
-    return {
-      status: OUTBOUND_SEND_STATUSES.FAILED,
-      externalMessageId: null,
-      sentAt: null,
-      providerResponseJson: {
-        provider: SLACK_PROVIDER,
-        channelId: input.conversation.externalConversationId,
-        sendImplemented: false,
-      },
-      platformMetadataJson: {
-        provider: SLACK_PROVIDER,
-        replyToExternalMessageId: input.replyToExternalMessageId ?? null,
-      },
-      diagnosticsJson: {
-        provider: SLACK_PROVIDER,
-        stage: "send",
-        message: "Slack DM send is not implemented yet.",
-      },
-    };
+    return sendSlackReply(input);
   }
 
   async fetchConversation(
