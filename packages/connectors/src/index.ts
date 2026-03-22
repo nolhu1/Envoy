@@ -62,6 +62,15 @@ export {
   normalizeGmailThread,
 } from "./gmail-normalization";
 export {
+  normalizeSlackAttachmentCandidates,
+  normalizeSlackConversationCandidate,
+  normalizeSlackConversationCandidateFromRaw,
+  normalizeSlackConversationSyncItem,
+  normalizeSlackMessageCandidate,
+  normalizeSlackMessageCandidateFromRaw,
+  normalizeSlackParticipantCandidates,
+} from "./slack-normalization";
+export {
   GMAIL_RECENT_SYNC_DEFAULT_MAX_RESULTS,
   GMAIL_RECENT_SYNC_DEFAULT_WINDOW_DAYS,
   GMAIL_RECENT_SYNC_MAX_RESULTS_LIMIT,
@@ -160,6 +169,7 @@ export type {
   SlackWorkspaceIdentity,
 } from "./slack-oauth";
 export type { GmailThreadNormalizationResult } from "./gmail-normalization";
+export type { SlackConversationNormalizationResult } from "./slack-normalization";
 export type {
   GmailMessage,
   GmailMessageHeader,

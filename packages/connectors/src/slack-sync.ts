@@ -56,6 +56,7 @@ export type SlackMessageFile = {
 export type SlackMessage = {
   type?: string;
   subtype?: string;
+  channel?: string;
   ts: string;
   thread_ts?: string;
   text?: string;
@@ -280,7 +281,10 @@ export async function fetchSlackRecentDms(
         latest,
         inclusive: "true",
       });
-      const messages = historyResponse.messages ?? [];
+      const messages = (historyResponse.messages ?? []).map((message) => ({
+        ...message,
+        channel: conversation.id,
+      }));
       rawHistories[conversation.id] = historyResponse as JsonValue;
 
       const threads = includeThreadReplies
@@ -307,9 +311,12 @@ export async function fetchSlackRecentDms(
                     latest,
                     inclusive: "true",
                   });
-                  const replies = (repliesResponse.messages ?? []).filter(
-                    (reply) => reply.ts !== message.ts,
-                  );
+                  const replies = (repliesResponse.messages ?? [])
+                    .filter((reply) => reply.ts !== message.ts)
+                    .map((reply) => ({
+                      ...reply,
+                      channel: conversation.id,
+                    }));
 
                   rawReplies[`${conversation.id}:${message.thread_ts}`] =
                     repliesResponse as JsonValue;

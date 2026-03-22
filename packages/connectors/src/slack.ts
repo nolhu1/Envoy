@@ -10,6 +10,10 @@ import type {
 import { INTEGRATION_STATUSES } from "./lifecycle";
 import { OUTBOUND_SEND_STATUSES } from "./outbound";
 import {
+  normalizeSlackConversationCandidateFromRaw,
+  normalizeSlackMessageCandidateFromRaw,
+} from "./slack-normalization";
+import {
   buildSlackRecentDmSyncInput,
   fetchSlackRecentDms,
   toSlackSyncResult,
@@ -190,77 +194,19 @@ export class SlackConnector implements Connector {
     context: ConnectorContext;
     rawConversation: JsonValue;
   }): Promise<NormalizedConversationCandidate> {
-    const rawConversation = isJsonObject(input.rawConversation)
-      ? input.rawConversation
-      : {};
-    const externalConversationId =
-      typeof rawConversation.id === "string"
-        ? rawConversation.id
-        : "slack-dm-placeholder";
-    const lastMessageAt =
-      typeof rawConversation.lastMessageTs === "string"
-        ? new Date(Number(rawConversation.lastMessageTs) * 1000)
-        : null;
-
-    return {
-      externalConversationId,
-      platform: input.context.platform,
-      subject: null,
-      lastMessageAt:
-        lastMessageAt && Number.isFinite(lastMessageAt.getTime())
-          ? lastMessageAt
-          : null,
-      rawPayloadJson: input.rawConversation,
-      platformMetadataJson: {
-        provider: SLACK_PROVIDER,
-        dm: true,
-      },
-    };
+    return normalizeSlackConversationCandidateFromRaw(
+      input.context,
+      input.rawConversation,
+    );
   }
 
   async normalizeMessage(input: {
     context: ConnectorContext;
     rawMessage: JsonValue;
   }): Promise<NormalizedMessageCandidate> {
-    const rawMessage = isJsonObject(input.rawMessage) ? input.rawMessage : {};
-    const ts =
-      typeof rawMessage.ts === "string" ? rawMessage.ts : null;
-    const sentAt = ts ? new Date(Number(ts) * 1000) : null;
-
-    return {
-      externalMessageId:
-        typeof rawMessage.ts === "string"
-          ? rawMessage.ts
-          : "slack-message-placeholder",
-      externalConversationId:
-        typeof rawMessage.channel === "string"
-          ? rawMessage.channel
-          : "slack-dm-placeholder",
-      platform: input.context.platform,
-      senderType: "EXTERNAL",
-      direction: "INBOUND",
-      bodyText:
-        typeof rawMessage.text === "string" ? rawMessage.text : null,
-      bodyHtml: null,
-      status: "RECEIVED",
-      sentAt:
-        sentAt && Number.isFinite(sentAt.getTime())
-          ? sentAt
-          : null,
-      receivedAt:
-        sentAt && Number.isFinite(sentAt.getTime())
-          ? sentAt
-          : null,
-      rawPayloadJson: input.rawMessage,
-      platformMetadataJson: {
-        provider: SLACK_PROVIDER,
-        channelId:
-          typeof rawMessage.channel === "string" ? rawMessage.channel : null,
-        threadTs:
-          typeof rawMessage.thread_ts === "string" ? rawMessage.thread_ts : null,
-        userId:
-          typeof rawMessage.user === "string" ? rawMessage.user : null,
-      },
-    };
+    return normalizeSlackMessageCandidateFromRaw(
+      input.context,
+      input.rawMessage,
+    );
   }
 }
