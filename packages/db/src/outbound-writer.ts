@@ -12,6 +12,7 @@ type WriterOptions = {
 };
 
 type JsonObject = Record<string, unknown>;
+type ProviderName = "gmail" | "slack";
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -47,7 +48,31 @@ function toDeliveryState(
   return input.deliveryState ?? (input.sendResult.status === "FAILED" ? "FAILED" : "SENT");
 }
 
+function readProviderFromJson(value: unknown) {
+  if (!isJsonObject(value)) {
+    return null;
+  }
+
+  return typeof value.provider === "string" ? value.provider : null;
+}
+
+function toProviderName(envelope: OutboundSendEnvelope): ProviderName {
+  const providerFromConversation = readProviderFromJson(
+    envelope.conversation.platformMetadataJson,
+  );
+  const providerFromContext = readProviderFromJson(
+    envelope.connectorContext.platformMetadataJson,
+  );
+
+  if (providerFromConversation === "slack" || providerFromContext === "slack") {
+    return "slack";
+  }
+
+  return "gmail";
+}
+
 function toAuditEvents(input: {
+  provider: ProviderName;
   sendStatus: "ACCEPTED" | "QUEUED" | "FAILED" | "REJECTED";
   messageId: string;
   conversationId: string;
@@ -58,11 +83,11 @@ function toAuditEvents(input: {
     {
       eventName:
         input.sendStatus === "FAILED"
-          ? "gmail.send.failed"
-          : "gmail.send.succeeded",
+          ? `${input.provider}.send.failed`
+          : `${input.provider}.send.succeeded`,
       occurredAt: new Date(),
       payload: {
-        provider: "gmail",
+        provider: input.provider,
         messageId: input.messageId,
         conversationId: input.conversationId,
         approvalRequestId: input.approvalRequestId ?? null,
@@ -83,6 +108,7 @@ export function createPrismaCanonicalOutboundWriter(
   return {
     async updateCanonicalStatus(input) {
       const prisma = getPrisma();
+      const provider = toProviderName(input.envelope);
       const currentMessage = await prisma.message.findFirst({
         where: {
           id: input.envelope.messageId,
@@ -119,7 +145,7 @@ export function createPrismaCanonicalOutboundWriter(
           platformMetadataJson: toPrismaJsonValue(mergeJson(
             currentMessage.platformMetadataJson,
             {
-              lastSendProvider: "gmail",
+              lastSendProvider: provider,
               lastSendStatus: input.sendExecutionResult.sendResult.status,
               lastSendAttemptedAt: new Date().toISOString(),
               lastSendExternalMessageId: externalMessageId,
@@ -157,6 +183,7 @@ export function createPrismaCanonicalOutboundWriter(
     async writeAuditHandoff(input) {
       const prisma = getPrisma();
       const auditEvents = toAuditEvents({
+        provider: toProviderName(input.envelope),
         sendStatus: input.canonicalStatus.sendStatus,
         messageId: input.envelope.messageId,
         conversationId: input.envelope.conversationId,
