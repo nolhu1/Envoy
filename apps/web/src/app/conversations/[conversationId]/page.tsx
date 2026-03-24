@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ReplySubmitButton } from "@/app/conversations/[conversationId]/reply-submit-button";
 import { getCurrentWorkspaceConversationThread } from "@/lib/thread";
+import { sendManualReplyAction } from "@/app/conversations/[conversationId]/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +11,12 @@ type ConversationThreadPageProps = {
   params: Promise<{
     conversationId: string;
   }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
+
+function readSearchParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 function formatTimestamp(value: Date) {
   return new Intl.DateTimeFormat("en-US", {
@@ -20,17 +27,34 @@ function formatTimestamp(value: Date) {
 
 export default async function ConversationThreadPage({
   params,
+  searchParams,
 }: ConversationThreadPageProps) {
   const { conversationId } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const thread = await getCurrentWorkspaceConversationThread(conversationId);
 
   if (!thread) {
     notFound();
   }
 
+  const replyStatus = readSearchParam(resolvedSearchParams?.reply);
+  const replyMessage = readSearchParam(resolvedSearchParams?.message);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-10">
       <div className="mx-auto max-w-5xl">
+        {replyStatus === "sent" ? (
+          <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Reply sent successfully.
+          </section>
+        ) : null}
+
+        {replyStatus === "error" && replyMessage ? (
+          <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Reply failed: {replyMessage}
+          </section>
+        ) : null}
+
         <header className="rounded-[28px] bg-slate-950 px-8 py-8 text-white shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -78,7 +102,40 @@ export default async function ConversationThreadPage({
         </header>
 
         <section className="mt-8 rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
+              Manual Reply
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              Reply in this thread
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Sends a plain text reply through the existing Gmail or Slack
+              outbound path for this conversation.
+            </p>
+
+            <form action={sendManualReplyAction} className="mt-4 space-y-4">
+              <input type="hidden" name="conversationId" value={thread.conversationId} />
+              <label className="block space-y-2">
+                <span className="text-sm font-medium text-slate-700">
+                  Reply body
+                </span>
+                <textarea
+                  required
+                  name="bodyText"
+                  rows={5}
+                  className="w-full rounded-[20px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-slate-400"
+                  placeholder="Write a reply..."
+                />
+              </label>
+
+              <div className="flex items-center justify-end">
+                <ReplySubmitButton />
+              </div>
+            </form>
+          </div>
+
+          <div className="mt-8 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
                 Participants
