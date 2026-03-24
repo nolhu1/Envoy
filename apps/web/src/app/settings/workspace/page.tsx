@@ -7,6 +7,7 @@ import {
 } from "@/lib/permissions";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import {
+  disconnectSlackIntegrationAction,
   startGmailConnectAction,
   startSlackConnectAction,
   syncGmailRecentThreadsAction,
@@ -76,6 +77,12 @@ export default async function WorkspaceSettingsPage({
           <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
             Slack connected successfully. Recent DM sync is available from this
             page.
+          </section>
+        ) : null}
+
+        {slackStatus === "disconnected" ? (
+          <section className="mb-6 rounded-[24px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-900 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Slack disconnected successfully.
           </section>
         ) : null}
 
@@ -270,6 +277,14 @@ export default async function WorkspaceSettingsPage({
                         className="inline-flex rounded-full border border-cyan-300 px-5 py-2.5 text-sm font-medium text-cyan-950 transition hover:border-cyan-400 hover:bg-cyan-50"
                       >
                         Sync Recent Slack DMs
+                      </button>
+                    </form>
+                    <form action={disconnectSlackIntegrationAction}>
+                      <button
+                        type="submit"
+                        className="inline-flex rounded-full border border-rose-300 px-5 py-2.5 text-sm font-medium text-rose-900 transition hover:border-rose-400 hover:bg-rose-50"
+                      >
+                        Disconnect Slack
                       </button>
                     </form>
                   </>

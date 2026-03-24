@@ -15,7 +15,9 @@ export {
   GmailConnector,
 } from "./gmail";
 export {
+  SLACK_MVP_BOT_SCOPES,
   SLACK_MVP_SCOPES,
+  SLACK_MVP_USER_SCOPES,
   SLACK_PROVIDER,
   SlackConnector,
 } from "./slack";

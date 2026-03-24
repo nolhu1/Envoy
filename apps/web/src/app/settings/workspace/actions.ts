@@ -4,6 +4,7 @@ import {
   buildGmailAuthorizationUrl,
   buildSlackAuthorizationUrl,
 } from "@envoy/connectors";
+import { getPrisma, revokeSecret } from "@envoy/db";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
@@ -132,4 +133,55 @@ export async function syncSlackRecentDmsAction() {
     const message = toSyncErrorMessage(error);
     redirect(`/settings/workspace?slackSync=error&message=${encodeURIComponent(message)}`);
   }
+}
+
+export async function disconnectSlackIntegrationAction() {
+  const authContext = await requireAuthenticatedEntryPoint({
+    permission: PERMISSIONS.CONNECT_INTEGRATIONS,
+  });
+  const workspace = await getCurrentWorkspace();
+
+  if (!workspace || workspace.id !== authContext.workspaceId) {
+    throw new Error("The current workspace could not be loaded.");
+  }
+
+  const integration = await getCurrentWorkspaceSlackIntegration();
+
+  if (!integration || integration.workspaceId !== workspace.id) {
+    throw new Error("No Slack integration is connected for this workspace.");
+  }
+
+  const prisma = getPrisma();
+  const activeSecret = await prisma.connectorSecret.findFirst({
+    where: {
+      workspaceId: workspace.id,
+      integrationId: integration.id,
+      revokedAt: null,
+    },
+    orderBy: [{ version: "desc" }, { updatedAt: "desc" }],
+    select: {
+      secretRef: true,
+    },
+  });
+
+  await prisma.integration.update({
+    where: { id: integration.id },
+    data: {
+      status: "DISCONNECTED",
+      deletedAt: new Date(),
+      platformMetadataJson: {
+        provider: "slack",
+        disconnectedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  if (activeSecret?.secretRef) {
+    await revokeSecret({
+      workspaceId: workspace.id,
+      secretRef: activeSecret.secretRef,
+    });
+  }
+
+  redirect("/settings/workspace?slack=disconnected");
 }

@@ -47,6 +47,8 @@ type SyncWorkspaceSlackIntegrationResult = {
 };
 
 const slackSyncIdempotencyService = new InMemoryIdempotencyService();
+const DEFAULT_SLACK_RECENT_WINDOW_DAYS = 14;
+const INITIAL_SLACK_RECENT_WINDOW_DAYS = 90;
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -67,10 +69,23 @@ function toPrismaJsonValue(value: unknown) {
 function readRecentWindowDays(connectorContext: ConnectorContext) {
   const config =
     isJsonObject(connectorContext.config) ? connectorContext.config : null;
+  const metadata =
+    isJsonObject(connectorContext.platformMetadataJson)
+      ? connectorContext.platformMetadataJson
+      : null;
+  const checkpoint =
+    metadata && isJsonObject(metadata.slackSyncCheckpoint)
+      ? metadata.slackSyncCheckpoint
+      : null;
+  const hasSuccessfulSync =
+    typeof checkpoint?.lastSuccessfulSyncAt === "string" &&
+    checkpoint.lastSuccessfulSyncAt.length > 0;
 
   return typeof config?.recentSyncWindowDays === "number" && config.recentSyncWindowDays > 0
     ? Math.floor(config.recentSyncWindowDays)
-    : 14;
+    : hasSuccessfulSync
+      ? DEFAULT_SLACK_RECENT_WINDOW_DAYS
+      : INITIAL_SLACK_RECENT_WINDOW_DAYS;
 }
 
 export async function getCurrentWorkspaceSlackIntegration() {
@@ -106,6 +121,7 @@ export async function getCurrentWorkspaceSlackIntegration() {
 function buildSlackEnvelope(input: {
   workspaceId: string;
   integrationId: string;
+  syncRunId: string;
   connectorContext: NonNullable<
     Awaited<ReturnType<typeof resolveConnectorContextForWorkspaceIntegration>>
   >;
@@ -128,6 +144,7 @@ function buildSlackEnvelope(input: {
       "slack",
       "sync",
       input.integrationId,
+      input.syncRunId,
       input.normalizedGroup.conversation.externalConversationId,
       lastMessage?.externalMessageId ?? "conversation",
       String(input.normalizedGroup.messages.length),
@@ -138,6 +155,7 @@ function buildSlackEnvelope(input: {
 async function runSlackConversationIngestion(input: {
   workspaceId: string;
   integrationId: string;
+  syncRunId: string;
   connectorContext: NonNullable<
     Awaited<ReturnType<typeof resolveConnectorContextForWorkspaceIntegration>>
   >;
@@ -208,6 +226,7 @@ export async function syncWorkspaceSlackIntegration(input: {
 
   const connectorContext = resolvedConnectorContext;
   const syncStartedAt = new Date();
+  const syncRunId = syncStartedAt.toISOString();
   const recentWindowDays = readRecentWindowDays(connectorContext);
   const recentWindowStart = new Date(syncStartedAt);
   recentWindowStart.setDate(recentWindowStart.getDate() - recentWindowDays);
@@ -234,16 +253,39 @@ export async function syncWorkspaceSlackIntegration(input: {
     const slackSync = await fetchSlackRecentDms(
       buildSlackRecentDmSyncInput({
         context: connectorContext,
+        windowStart: recentWindowStart,
+        windowEnd: syncStartedAt,
       }),
     );
+
+    if (
+      isJsonObject(slackSync.diagnosticsJson) &&
+      typeof slackSync.diagnosticsJson.dmConversationCount === "number" &&
+      typeof slackSync.diagnosticsJson.topLevelMessageCount === "number" &&
+      slackSync.diagnosticsJson.dmConversationCount > 0 &&
+      slackSync.diagnosticsJson.topLevelMessageCount === 0
+    ) {
+      console.warn(
+        "[slack-sync] No Slack DM messages returned by Web API",
+        JSON.stringify({
+          integrationId: input.integrationId,
+          workspaceId: input.workspaceId,
+          diagnostics: slackSync.diagnosticsJson,
+        }),
+      );
+    }
+
     const results: InboundOrchestrationResult[] = [];
     let normalizedConversationGroupCount = 0;
 
     for (const syncItem of slackSync.conversations) {
+      const relevantUsers = slackSync.users.filter((user) =>
+        syncItem.participantUserIds.includes(user.id),
+      );
       const normalizedGroups = normalizeSlackConversationGroups(
         connectorContext,
         syncItem,
-        slackSync.users,
+        relevantUsers,
       );
 
       normalizedConversationGroupCount += normalizedGroups.length;
@@ -253,6 +295,7 @@ export async function syncWorkspaceSlackIntegration(input: {
           await runSlackConversationIngestion({
             workspaceId: input.workspaceId,
             integrationId: input.integrationId,
+            syncRunId,
             connectorContext,
             syncItem,
             normalizedGroup,

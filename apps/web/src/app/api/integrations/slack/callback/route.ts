@@ -116,7 +116,11 @@ export async function GET(request: Request) {
       slackTeamName: identity.teamName ?? null,
       slackWorkspaceUrl: identity.workspaceUrl ?? null,
       slackBotUserId: identity.botUserId ?? null,
+      slackInstallingUserId:
+        authMaterial.providerAccessTokens?.userId ?? identity.userId ?? null,
       grantedScopes: authMaterial.scopes ?? [],
+      grantedBotScopes: authMaterial.providerAccessTokens?.botScopes ?? [],
+      grantedUserScopes: authMaterial.providerAccessTokens?.userScopes ?? [],
     };
 
     const existingIntegration = await prisma.integration.findFirst({
@@ -124,10 +128,10 @@ export async function GET(request: Request) {
         workspaceId: workspace.id,
         platform: "SLACK",
         externalAccountId,
-        deletedAt: null,
       },
       select: {
         id: true,
+        deletedAt: true,
       },
     });
 
@@ -141,6 +145,7 @@ export async function GET(request: Request) {
             displayName,
             status: "PENDING",
             platformMetadataJson,
+            deletedAt: null,
           },
         })
       : await prisma.integration.create({

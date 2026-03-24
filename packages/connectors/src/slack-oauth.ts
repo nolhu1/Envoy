@@ -1,7 +1,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { AUTH_MATERIAL_TYPES, type OAuthAuthMaterial } from "./credentials";
-import { SLACK_MVP_SCOPES, SLACK_PROVIDER } from "./slack";
+import {
+  SLACK_MVP_BOT_SCOPES,
+  SLACK_MVP_USER_SCOPES,
+  SLACK_PROVIDER,
+} from "./slack";
 
 export const SLACK_OAUTH_AUTH_BASE_URL =
   "https://slack.com/oauth/v2/authorize";
@@ -36,7 +40,8 @@ export type SlackOAuthConfig = {
   authTestUrl: string;
   stateSecret: string;
   stateTtlSeconds: number;
-  scopes: readonly string[];
+  botScopes: readonly string[];
+  userScopes: readonly string[];
 };
 
 export type SlackAuthorizationUrlInput = {
@@ -65,6 +70,12 @@ export type SlackOAuthAccessResponse = {
   enterprise?: {
     id?: string;
     name?: string;
+  };
+  authed_user?: {
+    id?: string;
+    scope?: string;
+    access_token?: string;
+    token_type?: string;
   };
   error?: string;
 };
@@ -139,7 +150,8 @@ export function getSlackOAuthConfig(): SlackOAuthConfig {
       process.env[SLACK_AUTH_TEST_URL_ENV] ?? SLACK_AUTH_TEST_URL,
     stateSecret: getRequiredEnv(SLACK_OAUTH_STATE_SECRET_ENV),
     stateTtlSeconds: parsedTtl,
-    scopes: SLACK_MVP_SCOPES,
+    botScopes: SLACK_MVP_BOT_SCOPES,
+    userScopes: SLACK_MVP_USER_SCOPES,
   };
 }
 
@@ -246,7 +258,10 @@ export function buildSlackAuthorizationUrl(
 
   url.searchParams.set("client_id", config.clientId);
   url.searchParams.set("redirect_uri", config.redirectUri);
-  url.searchParams.set("scope", config.scopes.join(","));
+  url.searchParams.set("scope", config.botScopes.join(","));
+  if (config.userScopes.length > 0) {
+    url.searchParams.set("user_scope", config.userScopes.join(","));
+  }
   url.searchParams.set("state", state);
 
   return {
@@ -286,9 +301,21 @@ export async function exchangeSlackAuthorizationCode(input: {
   });
   const accessResponse = await readJsonResponse<SlackOAuthAccessResponse>(response);
 
-  if (!response.ok || !accessResponse?.ok || !accessResponse.access_token) {
+  if (
+    !response.ok ||
+    !accessResponse?.ok ||
+    !accessResponse.access_token ||
+    !accessResponse.authed_user?.access_token
+  ) {
     throw new Error("Slack OAuth code exchange failed.");
   }
+
+  const botScopes = accessResponse.scope
+    ? accessResponse.scope.split(",").filter(Boolean)
+    : [...SLACK_MVP_BOT_SCOPES];
+  const userScopes = accessResponse.authed_user.scope
+    ? accessResponse.authed_user.scope.split(",").filter(Boolean)
+    : [...SLACK_MVP_USER_SCOPES];
 
   return {
     authMaterial: {
@@ -296,10 +323,18 @@ export async function exchangeSlackAuthorizationCode(input: {
       accessToken: accessResponse.access_token,
       refreshToken: null,
       expiresAt: null,
-      scopes: accessResponse.scope ? accessResponse.scope.split(",") : [...SLACK_MVP_SCOPES],
+      scopes: [...new Set([...botScopes, ...userScopes])],
       providerAccountId: accessResponse.team?.id ?? null,
       tokenType: accessResponse.token_type ?? "bot",
       idToken: null,
+      providerAccessTokens: {
+        botAccessToken: accessResponse.access_token,
+        botScopes,
+        userAccessToken: accessResponse.authed_user.access_token,
+        userScopes,
+        userId: accessResponse.authed_user.id ?? null,
+        userTokenType: accessResponse.authed_user.token_type ?? "user",
+      },
     },
     accessResponse,
   };

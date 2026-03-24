@@ -33,11 +33,18 @@ import type {
 } from "./types";
 
 export const SLACK_PROVIDER = "slack";
-export const SLACK_MVP_SCOPES = [
+export const SLACK_MVP_BOT_SCOPES = [
+  "chat:write",
+] as const;
+export const SLACK_MVP_USER_SCOPES = [
   "im:read",
   "im:history",
   "chat:write",
   "users:read",
+] as const;
+export const SLACK_MVP_SCOPES = [
+  ...SLACK_MVP_BOT_SCOPES,
+  ...SLACK_MVP_USER_SCOPES,
 ] as const;
 
 export type SlackOAuthInstallCredentialInput = {

@@ -22,6 +22,14 @@ export type OAuthAuthMaterial = {
   providerAccountId?: string | null;
   tokenType?: string | null;
   idToken?: string | null;
+  providerAccessTokens?: {
+    botAccessToken?: string | null;
+    botScopes?: string[];
+    userAccessToken?: string | null;
+    userScopes?: string[];
+    userId?: string | null;
+    userTokenType?: string | null;
+  } | null;
 };
 
 export type ApiKeyAuthMaterial = {

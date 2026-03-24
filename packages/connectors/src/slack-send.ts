@@ -58,7 +58,7 @@ function getRequiredAccessToken(context: ConnectorContext) {
     throw new Error("Slack send requires resolved OAuth auth material.");
   }
 
-  return authMaterial.accessToken;
+  return authMaterial.providerAccessTokens?.userAccessToken ?? authMaterial.accessToken;
 }
 
 function getSlackConversationMetadata(input: OutboundSendInput) {

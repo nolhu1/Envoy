@@ -139,7 +139,7 @@ function getRequiredAccessToken(context: ConnectorContext) {
     throw new Error("Slack sync requires resolved OAuth auth material.");
   }
 
-  return authMaterial.accessToken;
+  return authMaterial.providerAccessTokens?.userAccessToken ?? authMaterial.accessToken;
 }
 
 function clampLimit(
@@ -232,6 +232,22 @@ function collectParticipantUserIds(
   }
 
   return [...userIds];
+}
+
+function inferSlackTokenKind(accessToken: string) {
+  if (accessToken.startsWith("xoxb-")) {
+    return "bot";
+  }
+
+  if (accessToken.startsWith("xoxp-")) {
+    return "user";
+  }
+
+  if (accessToken.startsWith("xapp-")) {
+    return "app";
+  }
+
+  return "unknown";
 }
 
 export async function fetchSlackRecentDms(
@@ -400,6 +416,7 @@ export async function fetchSlackRecentDms(
     hasMore: Boolean(nextCursor),
     diagnosticsJson: {
       provider: SLACK_PROVIDER,
+      tokenKind: inferSlackTokenKind(accessToken),
       dmConversationCount: conversationItems.length,
       userCount: users.length,
       topLevelMessageCount: totalMessages,
@@ -410,6 +427,19 @@ export async function fetchSlackRecentDms(
       includeThreadReplies,
       oldest,
       latest: latest ?? null,
+      conversations: conversationItems.map((item) => ({
+        conversationId: item.conversation.id,
+        conversationUserId: item.conversation.user ?? null,
+        hasConversationLatest: Boolean(item.conversation.latest),
+        latestConversationMessageTs: item.conversation.latest?.ts ?? null,
+        topLevelMessageCount: item.messages.length,
+        topLevelMessageTimestamps: item.messages.map((message) => message.ts),
+        threadCount: item.threads.length,
+        threadReplyCount: item.threads.reduce(
+          (count, thread) => count + thread.replies.length,
+          0,
+        ),
+      })),
     },
     rawPayloadJson: {
       provider: SLACK_PROVIDER,
