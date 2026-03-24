@@ -2,13 +2,26 @@ import Link from "next/link";
 
 import { SignOutButton } from "@/components/sign-out-button";
 import { requireAppAuthContext } from "@/lib/app-auth";
-import { getCurrentWorkspaceInboxRows } from "@/lib/inbox";
+import {
+  getCurrentWorkspaceInboxAssigneeOptions,
+  getCurrentWorkspaceInboxRowsWithFilters,
+  readInboxFilters,
+} from "@/lib/inbox";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
+type HomePageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function HomePage({ searchParams }: HomePageProps) {
   const authContext = await requireAppAuthContext();
-  const inboxRows = await getCurrentWorkspaceInboxRows();
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const filters = readInboxFilters(resolvedSearchParams);
+  const [inboxRows, assigneeOptions] = await Promise.all([
+    getCurrentWorkspaceInboxRowsWithFilters(filters),
+    getCurrentWorkspaceInboxAssigneeOptions(),
+  ]);
 
   function formatRelativeActivity(value: Date) {
     const formatter = new Intl.DateTimeFormat("en-US", {
@@ -118,10 +131,107 @@ export default async function HomePage() {
             </div>
           </div>
 
+          <form className="mt-6 grid gap-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-6">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Platform
+              </span>
+              <select
+                name="platform"
+                defaultValue={filters.platform}
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="ALL">All platforms</option>
+                <option value="EMAIL">Gmail</option>
+                <option value="SLACK">Slack</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                State
+              </span>
+              <select
+                name="state"
+                defaultValue={filters.state}
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="ALL">All states</option>
+                <option value="UNASSIGNED">Unassigned</option>
+                <option value="ACTIVE">Active</option>
+                <option value="WAITING">Waiting</option>
+                <option value="FOLLOW_UP_DUE">Follow up due</option>
+                <option value="AWAITING_APPROVAL">Awaiting approval</option>
+                <option value="ESCALATED">Escalated</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="CLOSED">Closed</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Assignment
+              </span>
+              <select
+                name="agent"
+                defaultValue={filters.agent}
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="any">Any assignment</option>
+                <option value="has">Has agent</option>
+                <option value="none">No agent</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Assignee
+              </span>
+              <select
+                name="assignee"
+                defaultValue={filters.assigneeId}
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="ALL">Any assignee</option>
+                {assigneeOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 xl:col-span-1">
+              <input
+                type="checkbox"
+                name="awaitingApproval"
+                value="true"
+                defaultChecked={filters.awaitingApproval}
+                className="h-4 w-4 rounded border-slate-300 text-slate-950"
+              />
+              Awaiting approval
+            </label>
+
+            <div className="flex items-center gap-3 xl:justify-end">
+              <button
+                type="submit"
+                className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                Apply filters
+              </button>
+              <Link
+                href="/"
+                className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-white"
+              >
+                Reset
+              </Link>
+            </div>
+          </form>
+
           {inboxRows.length === 0 ? (
             <div className="mt-6 rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-sm text-slate-600">
-              Connect an integration and run sync from workspace settings to
-              populate the inbox.
+              No conversations match the current filters. Adjust the filters or
+              run sync from workspace settings.
             </div>
           ) : (
             <div className="mt-6 overflow-hidden rounded-[24px] border border-slate-200">
