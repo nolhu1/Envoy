@@ -11,14 +11,8 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { PERMISSIONS } from "@/lib/permissions";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import { requireAuthenticatedEntryPoint } from "@/lib/workspace-guards";
-import {
-  getCurrentWorkspaceGmailIntegration,
-  syncWorkspaceGmailIntegration,
-} from "@/lib/gmail-ingestion";
-import {
-  getCurrentWorkspaceSlackIntegration,
-  syncWorkspaceSlackIntegration,
-} from "@/lib/slack-ingestion";
+import { syncWorkspaceGmailIntegration } from "@/lib/gmail-ingestion";
+import { syncWorkspaceSlackIntegration } from "@/lib/slack-ingestion";
 
 export async function startGmailConnectAction() {
   const authContext = await requireAuthenticatedEntryPoint({
@@ -65,7 +59,7 @@ function toSyncErrorMessage(error: unknown) {
   return "Unable to sync integration.";
 }
 
-export async function syncGmailRecentThreadsAction() {
+async function requireWorkspaceForIntegrationManagement() {
   const authContext = await requireAuthenticatedEntryPoint({
     permission: PERMISSIONS.CONNECT_INTEGRATIONS,
   });
@@ -75,55 +69,72 @@ export async function syncGmailRecentThreadsAction() {
     throw new Error("The current workspace could not be loaded.");
   }
 
-  const integration = await getCurrentWorkspaceGmailIntegration();
-
-  if (!integration || integration.workspaceId !== workspace.id) {
-    throw new Error("No Gmail integration is connected for this workspace.");
-  }
-
-  try {
-    const result = await syncWorkspaceGmailIntegration({
-      workspaceId: workspace.id,
-      integrationId: integration.id,
-    });
-
-    redirect(
-      `/settings/workspace?gmailSync=completed&threadCount=${result.threadCount}&messageCount=${result.messageCount}`,
-    );
-  } catch (error) {
-    if (isRedirectError(error)) {
-      throw error;
-    }
-
-    const message = toSyncErrorMessage(error);
-    redirect(`/settings/workspace?gmailSync=error&message=${encodeURIComponent(message)}`);
-  }
+  return {
+    authContext,
+    workspace,
+  };
 }
 
-export async function syncSlackRecentDmsAction() {
-  const authContext = await requireAuthenticatedEntryPoint({
-    permission: PERMISSIONS.CONNECT_INTEGRATIONS,
-  });
-  const workspace = await getCurrentWorkspace();
+async function getManagedIntegration(input: {
+  workspaceId: string;
+  integrationId: string;
+}) {
+  const prisma = getPrisma();
 
-  if (!workspace || workspace.id !== authContext.workspaceId) {
-    throw new Error("The current workspace could not be loaded.");
+  return prisma.integration.findFirst({
+    where: {
+      id: input.integrationId,
+      workspaceId: input.workspaceId,
+      deletedAt: null,
+      platform: {
+        in: ["EMAIL", "SLACK"],
+      },
+    },
+    select: {
+      id: true,
+      workspaceId: true,
+      platform: true,
+      platformMetadataJson: true,
+    },
+  });
+}
+
+export async function syncIntegrationAction(formData: FormData) {
+  const { workspace } = await requireWorkspaceForIntegrationManagement();
+  const integrationId = String(formData.get("integrationId") ?? "").trim();
+
+  if (!integrationId) {
+    throw new Error("Integration id is required.");
   }
 
-  const integration = await getCurrentWorkspaceSlackIntegration();
+  const integration = await getManagedIntegration({
+    workspaceId: workspace.id,
+    integrationId,
+  });
 
-  if (!integration || integration.workspaceId !== workspace.id) {
-    throw new Error("No Slack integration is connected for this workspace.");
+  if (!integration) {
+    throw new Error("No managed integration is connected for this workspace.");
   }
 
   try {
+    if (integration.platform === "EMAIL") {
+      const result = await syncWorkspaceGmailIntegration({
+        workspaceId: workspace.id,
+        integrationId: integration.id,
+      });
+
+      redirect(
+        `/settings/workspace?integration=gmail&action=sync&status=completed&threadCount=${result.threadCount}&messageCount=${result.messageCount}`,
+      );
+    }
+
     const result = await syncWorkspaceSlackIntegration({
       workspaceId: workspace.id,
       integrationId: integration.id,
     });
 
     redirect(
-      `/settings/workspace?slackSync=completed&dmConversationCount=${result.dmConversationCount}&messageCount=${result.messageCount}`,
+      `/settings/workspace?integration=slack&action=sync&status=completed&dmConversationCount=${result.dmConversationCount}&messageCount=${result.messageCount}`,
     );
   } catch (error) {
     if (isRedirectError(error)) {
@@ -131,24 +142,29 @@ export async function syncSlackRecentDmsAction() {
     }
 
     const message = toSyncErrorMessage(error);
-    redirect(`/settings/workspace?slackSync=error&message=${encodeURIComponent(message)}`);
+    redirect(
+      `/settings/workspace?integration=${
+        integration.platform === "EMAIL" ? "gmail" : "slack"
+      }&action=sync&status=error&message=${encodeURIComponent(message)}`,
+    );
   }
 }
 
-export async function disconnectSlackIntegrationAction() {
-  const authContext = await requireAuthenticatedEntryPoint({
-    permission: PERMISSIONS.CONNECT_INTEGRATIONS,
-  });
-  const workspace = await getCurrentWorkspace();
+export async function disconnectIntegrationAction(formData: FormData) {
+  const { workspace } = await requireWorkspaceForIntegrationManagement();
+  const integrationId = String(formData.get("integrationId") ?? "").trim();
 
-  if (!workspace || workspace.id !== authContext.workspaceId) {
-    throw new Error("The current workspace could not be loaded.");
+  if (!integrationId) {
+    throw new Error("Integration id is required.");
   }
 
-  const integration = await getCurrentWorkspaceSlackIntegration();
+  const integration = await getManagedIntegration({
+    workspaceId: workspace.id,
+    integrationId,
+  });
 
-  if (!integration || integration.workspaceId !== workspace.id) {
-    throw new Error("No Slack integration is connected for this workspace.");
+  if (!integration) {
+    throw new Error("No managed integration is connected for this workspace.");
   }
 
   const prisma = getPrisma();
@@ -170,7 +186,7 @@ export async function disconnectSlackIntegrationAction() {
       status: "DISCONNECTED",
       deletedAt: new Date(),
       platformMetadataJson: {
-        provider: "slack",
+        provider: integration.platform === "EMAIL" ? "gmail" : "slack",
         disconnectedAt: new Date().toISOString(),
       },
     },
@@ -183,5 +199,9 @@ export async function disconnectSlackIntegrationAction() {
     });
   }
 
-  redirect("/settings/workspace?slack=disconnected");
+  redirect(
+    `/settings/workspace?integration=${
+      integration.platform === "EMAIL" ? "gmail" : "slack"
+    }&action=disconnect&status=completed`,
+  );
 }

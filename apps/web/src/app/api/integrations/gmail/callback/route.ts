@@ -43,7 +43,8 @@ function buildSettingsRedirect(request: Request, params?: URLSearchParams) {
 
 function buildErrorRedirect(request: Request, message: string) {
   const params = new URLSearchParams({
-    gmail: "error",
+    integration: "gmail",
+    status: "error",
     message,
   });
 
@@ -52,7 +53,8 @@ function buildErrorRedirect(request: Request, message: string) {
 
 function buildSuccessRedirect(request: Request) {
   const params = new URLSearchParams({
-    gmail: "connected",
+    integration: "gmail",
+    status: "connected",
   });
 
   return buildSettingsRedirect(request, params);
@@ -121,10 +123,10 @@ export async function GET(request: Request) {
         workspaceId: workspace.id,
         platform: "EMAIL",
         externalAccountId,
-        deletedAt: null,
       },
       select: {
         id: true,
+        deletedAt: true,
       },
     });
 
@@ -138,6 +140,7 @@ export async function GET(request: Request) {
             displayName,
             status: "PENDING",
             platformMetadataJson,
+            deletedAt: null,
           },
         })
       : await prisma.integration.create({

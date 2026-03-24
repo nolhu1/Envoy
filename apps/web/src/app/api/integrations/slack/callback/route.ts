@@ -43,7 +43,8 @@ function buildSettingsRedirect(request: Request, params?: URLSearchParams) {
 
 function buildErrorRedirect(request: Request, message: string) {
   const params = new URLSearchParams({
-    slack: "error",
+    integration: "slack",
+    status: "error",
     message,
   });
 
@@ -52,7 +53,8 @@ function buildErrorRedirect(request: Request, message: string) {
 
 function buildSuccessRedirect(request: Request) {
   const params = new URLSearchParams({
-    slack: "connected",
+    integration: "slack",
+    status: "connected",
   });
 
   return buildSettingsRedirect(request, params);
