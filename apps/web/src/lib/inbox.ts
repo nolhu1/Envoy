@@ -22,6 +22,7 @@ type InboxConversationState =
 export type InboxAgentFilter = "any" | "has" | "none";
 
 export type InboxFilters = {
+  query: string;
   platform: InboxPlatform | "ALL";
   state: InboxConversationState | "ALL";
   assigneeId: string | "ALL";
@@ -102,6 +103,7 @@ function readSearchParam(value: string | string[] | undefined) {
 export function readInboxFilters(
   searchParams?: Record<string, string | string[] | undefined>,
 ): InboxFilters {
+  const query = readSearchParam(searchParams?.q);
   const platform = readSearchParam(searchParams?.platform);
   const state = readSearchParam(searchParams?.state);
   const assigneeId = readSearchParam(searchParams?.assignee);
@@ -109,6 +111,7 @@ export function readInboxFilters(
   const awaitingApproval = readSearchParam(searchParams?.awaitingApproval);
 
   return {
+    query: query?.trim() ?? "",
     platform: INBOX_PLATFORM_OPTIONS.has(platform as InboxFilters["platform"])
       ? (platform as InboxFilters["platform"])
       : "ALL",
@@ -139,6 +142,7 @@ function buildInboxConversationWhere(input: {
       },
     },
   };
+  const andClauses: Record<string, unknown>[] = [];
 
   if (input.filters.platform !== "ALL") {
     where.platform = input.filters.platform;
@@ -158,8 +162,59 @@ function buildInboxConversationWhere(input: {
     where.assignedAgentId = null;
   }
 
+  if (input.filters.query) {
+    andClauses.push({
+      OR: [
+        {
+          subject: {
+            contains: input.filters.query,
+            mode: "insensitive",
+          },
+        },
+        {
+          participants: {
+            some: {
+              OR: [
+                {
+                  displayName: {
+                    contains: input.filters.query,
+                    mode: "insensitive",
+                  },
+                },
+                {
+                  email: {
+                    contains: input.filters.query,
+                    mode: "insensitive",
+                  },
+                },
+                {
+                  handle: {
+                    contains: input.filters.query,
+                    mode: "insensitive",
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          messages: {
+            some: {
+              deletedAt: null,
+              bodyText: {
+                contains: input.filters.query,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+      ],
+    });
+  }
+
   if (input.filters.awaitingApproval) {
-    where.OR = [
+    andClauses.push({
+      OR: [
       {
         state: "AWAITING_APPROVAL",
       },
@@ -170,7 +225,12 @@ function buildInboxConversationWhere(input: {
           },
         },
       },
-    ];
+    ],
+    });
+  }
+
+  if (andClauses.length > 0) {
+    where.AND = andClauses;
   }
 
   return where;
@@ -234,6 +294,7 @@ export async function getCurrentWorkspaceInboxRows() {
     where: buildInboxConversationWhere({
       workspaceId: authContext.workspaceId,
       filters: {
+        query: "",
         platform: "ALL",
         state: "ALL",
         assigneeId: "ALL",

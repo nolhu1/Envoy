@@ -132,6 +132,19 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
 
           <form className="mt-6 grid gap-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-6">
+            <label className="flex flex-col gap-2 text-sm text-slate-700 md:col-span-2 xl:col-span-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Search
+              </span>
+              <input
+                type="search"
+                name="q"
+                defaultValue={filters.query}
+                placeholder="Search subject, participants, or message text"
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+              />
+            </label>
+
             <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                 Platform
@@ -230,8 +243,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
           {inboxRows.length === 0 ? (
             <div className="mt-6 rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-sm text-slate-600">
-              No conversations match the current filters. Adjust the filters or
-              run sync from workspace settings.
+              No conversations match the current search and filters. Adjust the
+              filters or run sync from workspace settings.
             </div>
           ) : (
             <div className="mt-6 overflow-hidden rounded-[24px] border border-slate-200">
