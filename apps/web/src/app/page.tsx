@@ -134,8 +134,9 @@ export default async function HomePage() {
 
               <div className="divide-y divide-slate-200">
                 {inboxRows.map((row) => (
-                  <article
+                  <Link
                     key={row.conversationId}
+                    href={`/conversations/${row.conversationId}`}
                     className="grid gap-4 px-5 py-5 transition hover:bg-slate-50 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-start"
                   >
                     <div className="min-w-0">
@@ -196,7 +197,7 @@ export default async function HomePage() {
                         {row.conversationId}
                       </p>
                     </div>
-                  </article>
+                  </Link>
                 ))}
               </div>
             </div>

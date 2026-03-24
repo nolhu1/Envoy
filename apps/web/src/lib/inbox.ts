@@ -3,6 +3,10 @@ import "server-only";
 import { getPrisma } from "@envoy/db";
 
 import { getCurrentAppAuthContext } from "@/lib/app-auth";
+import {
+  buildConversationTitle,
+  formatParticipantSummary,
+} from "@/lib/conversation-display";
 
 type InboxPlatform = "EMAIL" | "SLACK";
 
@@ -56,94 +60,6 @@ export type InboxRow = {
   assignedAgentLabel: string | null;
   conversationState: InboxConversationRecord["state"];
 };
-
-function getParticipantDisplayName(
-  participant: InboxConversationRecord["participants"][number],
-) {
-  return (
-    participant.displayName ||
-    participant.email ||
-    participant.handle ||
-    (participant.isInternal ? "Internal participant" : "External participant")
-  );
-}
-
-function isSlackSystemParticipant(
-  participant: InboxConversationRecord["participants"][number],
-) {
-  const displayName = participant.displayName?.trim().toLowerCase() ?? null;
-  const handle = participant.handle?.trim().toLowerCase() ?? null;
-  const externalParticipantId =
-    participant.externalParticipantId?.trim().toLowerCase() ?? null;
-
-  return (
-    participant.isInternal ||
-    displayName === "slackbot" ||
-    handle === "@slackbot" ||
-    externalParticipantId === "uslackbot" ||
-    externalParticipantId?.startsWith("bot:") === true
-  );
-}
-
-function formatParticipantSummary(
-  platform: InboxPlatform,
-  participants: InboxConversationRecord["participants"],
-) {
-  const preferredParticipants = participants.filter((participant) =>
-    platform === "SLACK"
-      ? !isSlackSystemParticipant(participant)
-      : !participant.isInternal,
-  );
-  const source = preferredParticipants.length > 0 ? preferredParticipants : participants;
-  const labels = Array.from(
-    new Set(source.map((participant) => getParticipantDisplayName(participant)).filter(Boolean)),
-  );
-
-  if (labels.length === 0) {
-    return "No participants";
-  }
-
-  if (labels.length === 1) {
-    return labels[0];
-  }
-
-  if (labels.length === 2) {
-    return `${labels[0]} and ${labels[1]}`;
-  }
-
-  return `${labels[0]}, ${labels[1]}, +${labels.length - 2} more`;
-}
-
-function buildSlackTitle(record: InboxConversationRecord) {
-  const preferredParticipants = record.participants.filter(
-    (participant) => !isSlackSystemParticipant(participant),
-  );
-  const labels = Array.from(
-    new Set(
-      (preferredParticipants.length > 0 ? preferredParticipants : record.participants).map(
-        (participant) => getParticipantDisplayName(participant),
-      ),
-    ),
-  ).filter(Boolean);
-
-  if (labels.length === 0) {
-    return "Slack DM";
-  }
-
-  return labels.length === 1 ? labels[0] : `Slack DM: ${labels.join(", ")}`;
-}
-
-function buildConversationTitle(record: InboxConversationRecord) {
-  if (record.platform === "EMAIL") {
-    return (
-      record.subject?.trim() ||
-      formatParticipantSummary(record.platform, record.participants) ||
-      "Email thread"
-    );
-  }
-
-  return buildSlackTitle(record);
-}
 
 function buildLastMessagePreview(record: InboxConversationRecord) {
   const latestMessage = record.messages[0];
