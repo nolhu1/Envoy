@@ -4,6 +4,10 @@ export {
   ENVOY_EVENT_SOURCES,
   ENVOY_EVENT_TYPES,
 } from "./schema";
+export {
+  InMemoryEventPublisher,
+  NoOpEventPublisher,
+} from "./publisher";
 
 export type {
   AgentEventPayload,
@@ -28,3 +32,9 @@ export type {
   MessageEventPayload,
   WorkspaceId,
 } from "./schema";
+export type {
+  EventPublisher,
+  EventPublisherOptions,
+  PublishManyResult,
+  PublishResult,
+} from "./publisher";
