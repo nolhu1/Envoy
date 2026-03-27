@@ -20,6 +20,13 @@ import {
 } from "@envoy/db";
 
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
+import {
+  buildEnvoyEvent,
+  ENVOY_EVENT_ENTITY_TYPES,
+  ENVOY_EVENT_SOURCES,
+  ENVOY_EVENT_TYPES,
+  publishEnvoyEvent,
+} from "@/lib/event-publisher";
 
 type JsonObject = Record<string, unknown>;
 
@@ -388,6 +395,32 @@ export async function sendWorkspaceSlackReply(input: {
     {
       idempotencyService: slackSendIdempotencyService,
     },
+  );
+
+  await publishEnvoyEvent(
+    buildEnvoyEvent({
+      eventType:
+        result.sendStatus === "FAILED"
+          ? ENVOY_EVENT_TYPES.MESSAGE_SEND_FAILED
+          : ENVOY_EVENT_TYPES.MESSAGE_SENT,
+      workspaceId: input.workspaceId,
+      entityType: ENVOY_EVENT_ENTITY_TYPES.MESSAGE,
+      entityId: result.messageId,
+      source: ENVOY_EVENT_SOURCES.API,
+      payload: {
+        conversationId: result.conversationId,
+        messageId: result.messageId,
+        integrationId: result.integrationId,
+        platform: "SLACK",
+        externalMessageId: result.externalMessageId ?? null,
+        senderType: message.senderType,
+        direction: message.direction,
+        status: result.sendStatus === "FAILED" ? "FAILED" : "SENT",
+        metadata: {
+          provider: "slack",
+        },
+      },
+    }),
   );
 
   return {

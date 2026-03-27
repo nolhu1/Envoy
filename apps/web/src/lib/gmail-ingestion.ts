@@ -22,6 +22,14 @@ import {
 
 import { getCurrentAppAuthContext } from "@/lib/app-auth";
 import {
+  buildEnvoyEvent,
+  ENVOY_EVENT_ENTITY_TYPES,
+  ENVOY_EVENT_SOURCES,
+  ENVOY_EVENT_TYPES,
+  publishEnvoyEvent,
+  publishEnvoyEvents,
+} from "@/lib/event-publisher";
+import {
   buildFailedSyncMetadata,
   buildSuccessfulSyncMetadata,
   buildSyncInProgressMetadata,
@@ -298,6 +306,27 @@ export async function syncWorkspaceGmailIntegration(input: {
     },
   });
 
+  await publishEnvoyEvent(
+    buildEnvoyEvent({
+      eventType: ENVOY_EVENT_TYPES.INTEGRATION_SYNC_STARTED,
+      workspaceId: input.workspaceId,
+      entityType: ENVOY_EVENT_ENTITY_TYPES.INTEGRATION,
+      entityId: input.integrationId,
+      source: ENVOY_EVENT_SOURCES.WORKFLOW,
+      occurredAt: syncStartedAt,
+      payload: {
+        integrationId: input.integrationId,
+        platform: "EMAIL",
+        status: "SYNC_IN_PROGRESS",
+        metadata: {
+          provider: "gmail",
+          recentWindowStart: recentWindowStart.toISOString(),
+          recentWindowEnd: syncStartedAt.toISOString(),
+        },
+      },
+    }),
+  );
+
   try {
     if (
       isOauthAuthMaterial(connectorContext.authMaterial) &&
@@ -356,6 +385,33 @@ export async function syncWorkspaceGmailIntegration(input: {
       0,
     );
     const now = new Date();
+    const receivedEvents = results.flatMap((result) =>
+      result.messageIds
+        .slice(0, result.insertedCounts.messages)
+        .map((messageId, index) =>
+          buildEnvoyEvent({
+            eventType: ENVOY_EVENT_TYPES.MESSAGE_RECEIVED,
+            workspaceId: input.workspaceId,
+            entityType: ENVOY_EVENT_ENTITY_TYPES.MESSAGE,
+            entityId: messageId,
+            source: ENVOY_EVENT_SOURCES.CONNECTOR,
+            payload: {
+              conversationId: result.conversationId ?? "",
+              messageId,
+              integrationId: input.integrationId,
+              platform: "EMAIL",
+              externalMessageId:
+                result.batch?.messages[index]?.externalMessageId ?? null,
+              senderType: result.batch?.messages[index]?.senderType ?? null,
+              direction: result.batch?.messages[index]?.direction ?? null,
+              status: result.batch?.messages[index]?.status ?? "RECEIVED",
+              metadata: {
+                provider: "gmail",
+              },
+            },
+          }),
+        ),
+    );
 
     await prisma.integration.update({
       where: { id: input.integrationId },
@@ -385,6 +441,32 @@ export async function syncWorkspaceGmailIntegration(input: {
       },
     });
 
+    await publishEnvoyEvents(receivedEvents);
+    await publishEnvoyEvent(
+      buildEnvoyEvent({
+        eventType: ENVOY_EVENT_TYPES.INTEGRATION_SYNC_COMPLETED,
+        workspaceId: input.workspaceId,
+        entityType: ENVOY_EVENT_ENTITY_TYPES.INTEGRATION,
+        entityId: input.integrationId,
+        source: ENVOY_EVENT_SOURCES.WORKFLOW,
+        occurredAt: now,
+        payload: {
+          integrationId: input.integrationId,
+          platform: "EMAIL",
+          status: "CONNECTED",
+          threadCount: gmailSync.threads.length,
+          messageCount,
+          attachmentCount,
+          hasMore: gmailSync.hasMore,
+          metadata: {
+            provider: "gmail",
+            nextCursor: gmailSync.nextCursor ?? null,
+            conversationCount,
+          },
+        },
+      }),
+    );
+
     return {
       integrationId: input.integrationId,
       threadCount: gmailSync.threads.length,
@@ -395,6 +477,8 @@ export async function syncWorkspaceGmailIntegration(input: {
       hasMore: gmailSync.hasMore,
     };
   } catch (error) {
+    const failedAt = new Date();
+
     await prisma.integration.update({
       where: { id: input.integrationId },
       data: {
@@ -406,13 +490,35 @@ export async function syncWorkspaceGmailIntegration(input: {
               select: { platformMetadataJson: true },
             })
           )?.platformMetadataJson,
-          failedAt: new Date(),
+          failedAt,
           recentWindowStart,
-          recentWindowEnd: new Date(),
+          recentWindowEnd: failedAt,
           error,
         })),
       },
     });
+
+    await publishEnvoyEvent(
+      buildEnvoyEvent({
+        eventType: ENVOY_EVENT_TYPES.INTEGRATION_SYNC_FAILED,
+        workspaceId: input.workspaceId,
+        entityType: ENVOY_EVENT_ENTITY_TYPES.INTEGRATION,
+        entityId: input.integrationId,
+        source: ENVOY_EVENT_SOURCES.WORKFLOW,
+        occurredAt: failedAt,
+        payload: {
+          integrationId: input.integrationId,
+          platform: "EMAIL",
+          status: "ERROR",
+          metadata: {
+            provider: "gmail",
+            error: error instanceof Error ? error.message : "Unknown error",
+            recentWindowStart: recentWindowStart.toISOString(),
+            recentWindowEnd: failedAt.toISOString(),
+          },
+        },
+      }),
+    );
 
     throw error;
   }
