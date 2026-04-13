@@ -41,7 +41,10 @@ export type ApprovalQueueDetailMessageRow = ApprovalRequestDetail["recentMessage
   timestamp: Date;
 };
 
-export type ApprovalQueueDetailView = ApprovalRequestDetail & {
+export type ApprovalQueueDetailView = Omit<
+  ApprovalRequestDetail,
+  "recentMessages"
+> & {
   title: string;
   participantSummary: string;
   assignedAgentLabel: string | null;
@@ -143,7 +146,7 @@ export async function listWorkspaceApprovalQueue(
   input: ApprovalQueueListFilters & {
     workspaceId: string;
   },
-) {
+): Promise<ApprovalQueueListRow[]> {
   const items = await listApprovalRequests({
     workspaceId: input.workspaceId,
     filter: input.filter ?? APPROVAL_REQUEST_STATUSES.PENDING,
@@ -158,7 +161,7 @@ export async function getWorkspaceApprovalQueueDetail(input: {
   workspaceId: string;
   approvalRequestId: string;
   recentMessageLimit?: number;
-}) {
+}): Promise<ApprovalQueueDetailView | null> {
   const detail = await getApprovalRequestDetail({
     workspaceId: input.workspaceId,
     approvalRequestId: input.approvalRequestId,
@@ -212,7 +215,7 @@ export async function editAndApproveWorkspaceApprovalRequest(
 
 export async function listCurrentWorkspaceApprovalQueue(
   filters: ApprovalQueueListFilters = {},
-) {
+): Promise<ApprovalQueueListRow[]> {
   const authContext = await requirePermission(PERMISSIONS.APPROVE_DRAFTS);
 
   return listWorkspaceApprovalQueue({
@@ -224,7 +227,7 @@ export async function listCurrentWorkspaceApprovalQueue(
 export async function getCurrentWorkspaceApprovalQueueDetail(input: {
   approvalRequestId: string;
   recentMessageLimit?: number;
-}) {
+}): Promise<ApprovalQueueDetailView | null> {
   const authContext = await requirePermission(PERMISSIONS.APPROVE_DRAFTS);
 
   return getWorkspaceApprovalQueueDetail({
