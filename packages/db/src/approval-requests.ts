@@ -93,6 +93,102 @@ export type ReviewApprovalRequestResult = {
   actionLogs: ApprovalActionLogRecord[];
 };
 
+export type ApprovalQueueFilter =
+  | typeof APPROVAL_REQUEST_STATUSES.PENDING
+  | "RECENTLY_REVIEWED"
+  | "ALL";
+
+export type ApprovalQueueParticipant = {
+  id: string;
+  externalParticipantId: string | null;
+  displayName: string | null;
+  email: string | null;
+  handle: string | null;
+  isInternal: boolean;
+};
+
+export type ApprovalQueueConversationSummary = {
+  id: string;
+  platform: "EMAIL" | "SLACK";
+  subject: string | null;
+  state: ConversationState;
+  lastMessageAt: Date | null;
+  participants: ApprovalQueueParticipant[];
+  assignedAgent: {
+    id: string;
+    goal: string;
+    isActive: boolean;
+  } | null;
+};
+
+export type ApprovalQueueMessageSummary = {
+  id: string;
+  status:
+    | "RECEIVED"
+    | "DRAFT"
+    | "PENDING_APPROVAL"
+    | "APPROVED"
+    | "REJECTED"
+    | "QUEUED"
+    | "SENT"
+    | "DELIVERED"
+    | "FAILED";
+  bodyText: string | null;
+  bodyHtml: string | null;
+  senderType: "EXTERNAL" | "USER" | "AGENT" | "SYSTEM";
+  direction: "INBOUND" | "OUTBOUND" | "INTERNAL";
+  createdAt: Date;
+  sentAt: Date | null;
+  receivedAt: Date | null;
+  senderParticipant: ApprovalQueueParticipant | null;
+};
+
+export type ApprovalQueueListItem = {
+  approvalRequestId: string;
+  workspaceId: string;
+  conversationId: string;
+  draftMessageId: string;
+  proposedByAgentAssignmentId: string | null;
+  status: ApprovalRequestStatus;
+  createdAt: Date;
+  reviewedAt: Date | null;
+  reviewedByUserId: string | null;
+  rejectionReason: string | null;
+  editedContent: string | null;
+  conversation: ApprovalQueueConversationSummary;
+  draftMessage: ApprovalQueueMessageSummary;
+};
+
+export type ApprovalQueueListInput = {
+  workspaceId: string;
+  filter?: ApprovalQueueFilter;
+  limit?: number;
+  reviewedSince?: Date | null;
+};
+
+export type ApprovalRequestDetail = {
+  approvalRequestId: string;
+  workspaceId: string;
+  conversationId: string;
+  draftMessageId: string;
+  proposedByAgentAssignmentId: string | null;
+  status: ApprovalRequestStatus;
+  createdAt: Date;
+  reviewedAt: Date | null;
+  reviewedByUserId: string | null;
+  rejectionReason: string | null;
+  editedContent: string | null;
+  conversation: ApprovalQueueConversationSummary;
+  draftMessage: ApprovalQueueMessageSummary;
+  recentMessages: ApprovalQueueMessageSummary[];
+};
+
+export type ApprovalRequestDetailInput = {
+  workspaceId: string;
+  approvalRequestId: string;
+  recentMessageLimit?: number;
+};
+
 export class ApprovalRequestTransitionError extends Error {
   readonly from: ApprovalRequestStatus;
   readonly to: ApprovalRequestStatus;
@@ -177,6 +273,127 @@ function toPrismaJsonValue(value: unknown) {
   return (value ?? null) as never;
 }
 
+function toApprovalQueueParticipant(input: {
+  id: string;
+  externalParticipantId: string | null;
+  displayName: string | null;
+  email: string | null;
+  handle: string | null;
+  isInternal: boolean;
+}): ApprovalQueueParticipant {
+  return input;
+}
+
+function toApprovalQueueMessageSummary(input: {
+  id: string;
+  status: ApprovalQueueMessageSummary["status"];
+  bodyText: string | null;
+  bodyHtml: string | null;
+  senderType: ApprovalQueueMessageSummary["senderType"];
+  direction: ApprovalQueueMessageSummary["direction"];
+  createdAt: Date;
+  sentAt: Date | null;
+  receivedAt: Date | null;
+  senderParticipant?: {
+    id: string;
+    externalParticipantId: string | null;
+    displayName: string | null;
+    email: string | null;
+    handle: string | null;
+    isInternal: boolean;
+  } | null;
+}): ApprovalQueueMessageSummary {
+  return {
+    id: input.id,
+    status: input.status,
+    bodyText: input.bodyText,
+    bodyHtml: input.bodyHtml,
+    senderType: input.senderType,
+    direction: input.direction,
+    createdAt: input.createdAt,
+    sentAt: input.sentAt,
+    receivedAt: input.receivedAt,
+    senderParticipant: input.senderParticipant
+      ? toApprovalQueueParticipant(input.senderParticipant)
+      : null,
+  };
+}
+
+function toApprovalQueueConversationSummary(input: {
+  id: string;
+  platform: "EMAIL" | "SLACK";
+  subject: string | null;
+  state: ConversationState;
+  lastMessageAt: Date | null;
+  participants: Array<{
+    id: string;
+    externalParticipantId: string | null;
+    displayName: string | null;
+    email: string | null;
+    handle: string | null;
+    isInternal: boolean;
+  }>;
+  assignedAgent: {
+    id: string;
+    goal: string;
+    isActive: boolean;
+  } | null;
+}): ApprovalQueueConversationSummary {
+  return {
+    id: input.id,
+    platform: input.platform,
+    subject: input.subject,
+    state: input.state,
+    lastMessageAt: input.lastMessageAt,
+    participants: input.participants.map(toApprovalQueueParticipant),
+    assignedAgent: input.assignedAgent,
+  };
+}
+
+function toApprovalQueueListItem(input: {
+  id: string;
+  workspaceId: string;
+  conversationId: string;
+  draftMessageId: string;
+  proposedByAgentAssignmentId: string | null;
+  status: ApprovalRequestStatus;
+  createdAt: Date;
+  reviewedAt: Date | null;
+  reviewedByUserId: string | null;
+  rejectionReason: string | null;
+  editedContent: string | null;
+  conversation: {
+    id: string;
+    platform: "EMAIL" | "SLACK";
+    subject: string | null;
+    state: ConversationState;
+    lastMessageAt: Date | null;
+    participants: Array<ApprovalQueueParticipant>;
+    assignedAgent: {
+      id: string;
+      goal: string;
+      isActive: boolean;
+    } | null;
+  };
+  draftMessage: ApprovalQueueMessageSummary;
+}): ApprovalQueueListItem {
+  return {
+    approvalRequestId: input.id,
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    draftMessageId: input.draftMessageId,
+    proposedByAgentAssignmentId: input.proposedByAgentAssignmentId,
+    status: input.status,
+    createdAt: input.createdAt,
+    reviewedAt: input.reviewedAt,
+    reviewedByUserId: input.reviewedByUserId,
+    rejectionReason: input.rejectionReason,
+    editedContent: input.editedContent,
+    conversation: input.conversation,
+    draftMessage: input.draftMessage,
+  };
+}
+
 function toApprovalActionLogRecord(input: {
   id: string;
   actionType: string;
@@ -229,6 +446,258 @@ function toMessageStatusFromApprovalDecision(decision: ApprovalReviewDecision) {
   return decision === APPROVAL_REQUEST_STATUSES.APPROVED
     ? "APPROVED"
     : "REJECTED";
+}
+
+function buildApprovalQueueWhere(input: ApprovalQueueListInput) {
+  const filter = input.filter ?? APPROVAL_REQUEST_STATUSES.PENDING;
+
+  if (filter === "ALL") {
+    return {
+      workspaceId: input.workspaceId,
+    };
+  }
+
+  if (filter === "RECENTLY_REVIEWED") {
+    return {
+      workspaceId: input.workspaceId,
+      status: {
+        in: [
+          APPROVAL_REQUEST_STATUSES.APPROVED,
+          APPROVAL_REQUEST_STATUSES.REJECTED,
+        ],
+      },
+      reviewedAt: input.reviewedSince
+        ? {
+            gte: input.reviewedSince,
+          }
+        : {
+            not: null,
+          },
+    };
+  }
+
+  return {
+    workspaceId: input.workspaceId,
+    status: APPROVAL_REQUEST_STATUSES.PENDING,
+  };
+}
+
+export async function listApprovalRequests(
+  input: ApprovalQueueListInput,
+): Promise<ApprovalQueueListItem[]> {
+  const prisma = getPrisma();
+  const records = await prisma.approvalRequest.findMany({
+    where: buildApprovalQueueWhere(input),
+    orderBy:
+      input.filter === "RECENTLY_REVIEWED"
+        ? [{ reviewedAt: "desc" }, { createdAt: "desc" }]
+        : [{ createdAt: "asc" }],
+    take: Math.max(1, Math.min(input.limit ?? 50, 200)),
+    select: {
+      id: true,
+      workspaceId: true,
+      conversationId: true,
+      draftMessageId: true,
+      proposedByAgentAssignmentId: true,
+      status: true,
+      createdAt: true,
+      reviewedAt: true,
+      reviewedByUserId: true,
+      rejectionReason: true,
+      editedContent: true,
+      conversation: {
+        select: {
+          id: true,
+          platform: true,
+          subject: true,
+          state: true,
+          lastMessageAt: true,
+          participants: {
+            select: {
+              id: true,
+              externalParticipantId: true,
+              displayName: true,
+              email: true,
+              handle: true,
+              isInternal: true,
+            },
+            orderBy: [{ isInternal: "asc" }, { createdAt: "asc" }],
+          },
+          assignedAgent: {
+            select: {
+              id: true,
+              goal: true,
+              isActive: true,
+            },
+          },
+        },
+      },
+      draftMessage: {
+        select: {
+          id: true,
+          status: true,
+          bodyText: true,
+          bodyHtml: true,
+          senderType: true,
+          direction: true,
+          createdAt: true,
+          sentAt: true,
+          receivedAt: true,
+          senderParticipant: {
+            select: {
+              id: true,
+              externalParticipantId: true,
+              displayName: true,
+              email: true,
+              handle: true,
+              isInternal: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return records.map((record) =>
+    toApprovalQueueListItem({
+      ...record,
+      conversation: toApprovalQueueConversationSummary({
+        ...record.conversation,
+        participants: record.conversation.participants,
+      }),
+      draftMessage: toApprovalQueueMessageSummary(record.draftMessage),
+    }),
+  );
+}
+
+export async function getApprovalRequestDetail(
+  input: ApprovalRequestDetailInput,
+): Promise<ApprovalRequestDetail | null> {
+  const prisma = getPrisma();
+  const approvalRequest = await prisma.approvalRequest.findFirst({
+    where: {
+      id: input.approvalRequestId,
+      workspaceId: input.workspaceId,
+    },
+    select: {
+      id: true,
+      workspaceId: true,
+      conversationId: true,
+      draftMessageId: true,
+      proposedByAgentAssignmentId: true,
+      status: true,
+      createdAt: true,
+      reviewedAt: true,
+      reviewedByUserId: true,
+      rejectionReason: true,
+      editedContent: true,
+      conversation: {
+        select: {
+          id: true,
+          platform: true,
+          subject: true,
+          state: true,
+          lastMessageAt: true,
+          participants: {
+            select: {
+              id: true,
+              externalParticipantId: true,
+              displayName: true,
+              email: true,
+              handle: true,
+              isInternal: true,
+            },
+            orderBy: [{ isInternal: "asc" }, { createdAt: "asc" }],
+          },
+          assignedAgent: {
+            select: {
+              id: true,
+              goal: true,
+              isActive: true,
+            },
+          },
+          messages: {
+            where: {
+              deletedAt: null,
+            },
+            orderBy: [{ createdAt: "desc" }],
+            take: Math.max(1, Math.min(input.recentMessageLimit ?? 10, 50)),
+            select: {
+              id: true,
+              status: true,
+              bodyText: true,
+              bodyHtml: true,
+              senderType: true,
+              direction: true,
+              createdAt: true,
+              sentAt: true,
+              receivedAt: true,
+              senderParticipant: {
+                select: {
+                  id: true,
+                  externalParticipantId: true,
+                  displayName: true,
+                  email: true,
+                  handle: true,
+                  isInternal: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      draftMessage: {
+        select: {
+          id: true,
+          status: true,
+          bodyText: true,
+          bodyHtml: true,
+          senderType: true,
+          direction: true,
+          createdAt: true,
+          sentAt: true,
+          receivedAt: true,
+          senderParticipant: {
+            select: {
+              id: true,
+              externalParticipantId: true,
+              displayName: true,
+              email: true,
+              handle: true,
+              isInternal: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!approvalRequest) {
+    return null;
+  }
+
+  return {
+    approvalRequestId: approvalRequest.id,
+    workspaceId: approvalRequest.workspaceId,
+    conversationId: approvalRequest.conversationId,
+    draftMessageId: approvalRequest.draftMessageId,
+    proposedByAgentAssignmentId: approvalRequest.proposedByAgentAssignmentId,
+    status: approvalRequest.status,
+    createdAt: approvalRequest.createdAt,
+    reviewedAt: approvalRequest.reviewedAt,
+    reviewedByUserId: approvalRequest.reviewedByUserId,
+    rejectionReason: approvalRequest.rejectionReason,
+    editedContent: approvalRequest.editedContent,
+    conversation: toApprovalQueueConversationSummary({
+      ...approvalRequest.conversation,
+      participants: approvalRequest.conversation.participants,
+    }),
+    draftMessage: toApprovalQueueMessageSummary(approvalRequest.draftMessage),
+    recentMessages: approvalRequest.conversation.messages
+      .slice()
+      .reverse()
+      .map(toApprovalQueueMessageSummary),
+  };
 }
 
 export async function createApprovalRequestForAgentDraft(
