@@ -93,6 +93,40 @@ export type ReviewApprovalRequestResult = {
   actionLogs: ApprovalActionLogRecord[];
 };
 
+export type ApprovalReviewerFeedback = {
+  sourceApprovalRequestId: string;
+  sourceDraftMessageId: string;
+  reviewedByUserId: string | null;
+  reviewedAt: Date | null;
+  rejectionReason: string | null;
+  editedContent: string | null;
+};
+
+export type CreateRevisedApprovalRequestFromRejectedApprovalInput = {
+  workspaceId: string;
+  approvalRequestId: string;
+  revisedBodyText: string;
+  revisedBodyHtml?: string | null;
+  proposedByAgentAssignmentId?: string | null;
+  actorContext?: ApprovalActorContext | null;
+  platformMetadataJson?: unknown;
+};
+
+export type CreateRevisedApprovalRequestFromRejectedApprovalResult = {
+  workspaceId: string;
+  conversationId: string;
+  sourceApprovalRequestId: string;
+  sourceDraftMessageId: string;
+  approvalRequestId: string;
+  draftMessageId: string;
+  approvalStatus: ApprovalRequestStatus;
+  messageStatus: "PENDING_APPROVAL";
+  previousConversationState: ConversationState;
+  conversationState: ConversationState;
+  reviewerFeedback: ApprovalReviewerFeedback;
+  actionLogs: ApprovalActionLogRecord[];
+};
+
 export type ApprovalQueueFilter =
   | typeof APPROVAL_REQUEST_STATUSES.PENDING
   | "RECENTLY_REVIEWED"
@@ -178,6 +212,7 @@ export type ApprovalRequestDetail = {
   reviewedByUserId: string | null;
   rejectionReason: string | null;
   editedContent: string | null;
+  reviewerFeedback: ApprovalReviewerFeedback | null;
   conversation: ApprovalQueueConversationSummary;
   draftMessage: ApprovalQueueMessageSummary;
   recentMessages: ApprovalQueueMessageSummary[];
@@ -271,6 +306,23 @@ function normalizeEditedContent(value: string | null | undefined) {
 
 function toPrismaJsonValue(value: unknown) {
   return (value ?? null) as never;
+}
+
+function toFeedbackMetadataJson(
+  feedback: ApprovalReviewerFeedback | null | undefined,
+) {
+  if (!feedback) {
+    return null;
+  }
+
+  return {
+    sourceApprovalRequestId: feedback.sourceApprovalRequestId,
+    sourceDraftMessageId: feedback.sourceDraftMessageId,
+    reviewedByUserId: feedback.reviewedByUserId,
+    reviewedAt: feedback.reviewedAt?.toISOString() ?? null,
+    rejectionReason: feedback.rejectionReason,
+    editedContent: feedback.editedContent,
+  };
 }
 
 function toApprovalQueueParticipant(input: {
@@ -446,6 +498,55 @@ function toMessageStatusFromApprovalDecision(decision: ApprovalReviewDecision) {
   return decision === APPROVAL_REQUEST_STATUSES.APPROVED
     ? "APPROVED"
     : "REJECTED";
+}
+
+function buildApprovalReviewerFeedback(input: {
+  approvalRequestId: string;
+  draftMessageId: string;
+  reviewedByUserId: string | null;
+  reviewedAt: Date | null;
+  rejectionReason: string | null;
+  editedContent: string | null;
+}): ApprovalReviewerFeedback | null {
+  if (
+    !input.reviewedAt &&
+    !input.reviewedByUserId &&
+    !input.rejectionReason &&
+    !input.editedContent
+  ) {
+    return null;
+  }
+
+  return {
+    sourceApprovalRequestId: input.approvalRequestId,
+    sourceDraftMessageId: input.draftMessageId,
+    reviewedByUserId: input.reviewedByUserId,
+    reviewedAt: input.reviewedAt,
+    rejectionReason: input.rejectionReason,
+    editedContent: input.editedContent,
+  };
+}
+
+function buildApprovalDraftPlatformMetadata(input: {
+  platformMetadataJson?: unknown;
+  reviewerFeedback?: ApprovalReviewerFeedback | null;
+  additionalMetadata?: Record<string, unknown>;
+}) {
+  return {
+    approvalRequired: true,
+    draftOrigin: "agent",
+    ...(input.additionalMetadata ?? {}),
+    ...(input.reviewerFeedback
+      ? {
+          reviewerFeedback: toFeedbackMetadataJson(input.reviewerFeedback),
+        }
+      : {}),
+    ...(input.platformMetadataJson &&
+    typeof input.platformMetadataJson === "object" &&
+    !Array.isArray(input.platformMetadataJson)
+      ? (input.platformMetadataJson as Record<string, unknown>)
+      : {}),
+  };
 }
 
 function buildApprovalQueueWhere(input: ApprovalQueueListInput) {
@@ -688,6 +789,14 @@ export async function getApprovalRequestDetail(
     reviewedByUserId: approvalRequest.reviewedByUserId,
     rejectionReason: approvalRequest.rejectionReason,
     editedContent: approvalRequest.editedContent,
+    reviewerFeedback: buildApprovalReviewerFeedback({
+      approvalRequestId: approvalRequest.id,
+      draftMessageId: approvalRequest.draftMessageId,
+      reviewedByUserId: approvalRequest.reviewedByUserId,
+      reviewedAt: approvalRequest.reviewedAt,
+      rejectionReason: approvalRequest.rejectionReason,
+      editedContent: approvalRequest.editedContent,
+    }),
     conversation: toApprovalQueueConversationSummary({
       ...approvalRequest.conversation,
       participants: approvalRequest.conversation.participants,
@@ -775,15 +884,11 @@ export async function createApprovalRequestForAgentDraft(
         bodyText,
         bodyHtml: input.bodyHtml ?? null,
         status: "PENDING_APPROVAL",
-        platformMetadataJson: toPrismaJsonValue({
-          approvalRequired: true,
-          draftOrigin: "agent",
-          ...(input.platformMetadataJson &&
-          typeof input.platformMetadataJson === "object" &&
-          !Array.isArray(input.platformMetadataJson)
-            ? (input.platformMetadataJson as Record<string, unknown>)
-            : {}),
-        }),
+        platformMetadataJson: toPrismaJsonValue(
+          buildApprovalDraftPlatformMetadata({
+            platformMetadataJson: input.platformMetadataJson,
+          }),
+        ),
       },
       select: {
         id: true,
@@ -897,6 +1002,288 @@ export async function createApprovalRequestForAgentDraft(
       messageStatus: "PENDING_APPROVAL",
       previousConversationState: conversation.state,
       conversationState: conversationTransition.to,
+      actionLogs: actionLogs.map(toApprovalActionLogRecord),
+    };
+  });
+}
+
+export async function createRevisedApprovalRequestFromRejectedApproval(
+  input: CreateRevisedApprovalRequestFromRejectedApprovalInput,
+): Promise<CreateRevisedApprovalRequestFromRejectedApprovalResult> {
+  const prisma = getPrisma();
+  const revisedBodyText = input.revisedBodyText.trim();
+
+  if (!revisedBodyText) {
+    throw new Error("Revised draft body text is required.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const sourceApprovalRequest = await tx.approvalRequest.findFirst({
+      where: {
+        id: input.approvalRequestId,
+        workspaceId: input.workspaceId,
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        conversationId: true,
+        draftMessageId: true,
+        proposedByAgentAssignmentId: true,
+        status: true,
+        reviewedAt: true,
+        reviewedByUserId: true,
+        rejectionReason: true,
+        editedContent: true,
+        conversation: {
+          select: {
+            id: true,
+            state: true,
+            platform: true,
+          },
+        },
+        draftMessage: {
+          select: {
+            id: true,
+            workspaceId: true,
+            conversationId: true,
+            direction: true,
+            senderType: true,
+          },
+        },
+      },
+    });
+
+    if (!sourceApprovalRequest) {
+      throw new Error("The rejected approval request could not be loaded.");
+    }
+
+    if (sourceApprovalRequest.status !== APPROVAL_REQUEST_STATUSES.REJECTED) {
+      throw new Error("Only rejected approval requests can be revised.");
+    }
+
+    if (
+      sourceApprovalRequest.draftMessage.workspaceId !== input.workspaceId ||
+      sourceApprovalRequest.draftMessage.conversationId !==
+        sourceApprovalRequest.conversationId
+    ) {
+      throw new Error("The rejected draft does not belong to this workspace conversation.");
+    }
+
+    if (sourceApprovalRequest.draftMessage.direction !== "OUTBOUND") {
+      throw new Error("Only outbound rejected drafts can be revised.");
+    }
+
+    if (sourceApprovalRequest.draftMessage.senderType !== "AGENT") {
+      throw new Error("Only agent-generated rejected drafts can be revised.");
+    }
+
+    const proposedByAgentAssignmentId =
+      input.proposedByAgentAssignmentId ??
+      sourceApprovalRequest.proposedByAgentAssignmentId;
+
+    if (proposedByAgentAssignmentId) {
+      const agentAssignment = await tx.agentAssignment.findFirst({
+        where: {
+          id: proposedByAgentAssignmentId,
+          workspaceId: input.workspaceId,
+          conversationId: sourceApprovalRequest.conversationId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!agentAssignment) {
+        throw new Error(
+          "The revised draft agent assignment does not belong to this conversation.",
+        );
+      }
+    }
+
+    const revisedByActor = buildMessageDraftedActor({
+      workspaceId: input.workspaceId,
+      conversationId: sourceApprovalRequest.conversationId,
+      bodyText: revisedBodyText,
+      bodyHtml: input.revisedBodyHtml ?? null,
+      proposedByAgentAssignmentId,
+      actorContext: input.actorContext ?? null,
+    });
+    assertValidActorContext(revisedByActor);
+
+    const reviewerFeedback = buildApprovalReviewerFeedback({
+      approvalRequestId: sourceApprovalRequest.id,
+      draftMessageId: sourceApprovalRequest.draftMessageId,
+      reviewedByUserId: sourceApprovalRequest.reviewedByUserId,
+      reviewedAt: sourceApprovalRequest.reviewedAt,
+      rejectionReason: sourceApprovalRequest.rejectionReason,
+      editedContent: sourceApprovalRequest.editedContent,
+    });
+
+    if (!reviewerFeedback) {
+      throw new Error("Rejected approvals must preserve reviewer feedback.");
+    }
+
+    const conversationTransition = transitionConversationState({
+      conversationId: sourceApprovalRequest.conversation.id,
+      from: sourceApprovalRequest.conversation.state,
+      to: CONVERSATION_STATES.AWAITING_APPROVAL,
+      event: {
+        triggerType: CONVERSATION_WORKFLOW_TRIGGER_TYPES.APPROVAL_REQUIRED,
+        source: "approval",
+        metadata: {
+          workspaceId: input.workspaceId,
+          sourceApprovalRequestId: sourceApprovalRequest.id,
+          revisionRequestedFromRejection: true,
+        },
+      },
+      reason: "A revised AI draft requires renewed human review.",
+    });
+
+    const revisedDraftMessage = await tx.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: sourceApprovalRequest.conversationId,
+        platform: sourceApprovalRequest.conversation.platform,
+        senderType: "AGENT",
+        direction: "OUTBOUND",
+        bodyText: revisedBodyText,
+        bodyHtml: input.revisedBodyHtml ?? null,
+        status: "PENDING_APPROVAL",
+        platformMetadataJson: toPrismaJsonValue(
+          buildApprovalDraftPlatformMetadata({
+            platformMetadataJson: input.platformMetadataJson,
+            reviewerFeedback,
+            additionalMetadata: {
+              revisionOfApprovalRequestId: sourceApprovalRequest.id,
+              revisionOfDraftMessageId: sourceApprovalRequest.draftMessageId,
+              revisedFromRejectedApproval: true,
+            },
+          }),
+        ),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const revisedApprovalRequest = await tx.approvalRequest.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: sourceApprovalRequest.conversationId,
+        draftMessageId: revisedDraftMessage.id,
+        proposedByAgentAssignmentId,
+        status: APPROVAL_REQUEST_STATUSES.PENDING,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (conversationTransition.changed) {
+      await tx.conversation.update({
+        where: {
+          id: sourceApprovalRequest.conversation.id,
+        },
+        data: {
+          state: conversationTransition.to,
+        },
+      });
+    }
+
+    const actionLogs = await Promise.all([
+      tx.actionLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          conversationId: sourceApprovalRequest.conversationId,
+          messageId: revisedDraftMessage.id,
+          approvalRequestId: revisedApprovalRequest.id,
+          actorType: revisedByActor.actorType,
+          actorUserId: revisedByActor.actorUserId ?? null,
+          actorAgentAssignmentId: revisedByActor.actorAgentAssignmentId ?? null,
+          actionType: APPROVAL_ACTION_TYPES.MESSAGE_DRAFTED,
+          metadataJson: toPrismaJsonValue({
+            messageStatus: "PENDING_APPROVAL",
+            draftOrigin: "agent",
+            revisedFromRejectedApproval: true,
+            sourceApprovalRequestId: sourceApprovalRequest.id,
+            sourceDraftMessageId: sourceApprovalRequest.draftMessageId,
+            reviewerFeedback: toFeedbackMetadataJson(reviewerFeedback),
+          }),
+        },
+        select: {
+          id: true,
+          actionType: true,
+          actorType: true,
+          createdAt: true,
+        },
+      }),
+      tx.actionLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          conversationId: sourceApprovalRequest.conversationId,
+          messageId: revisedDraftMessage.id,
+          approvalRequestId: revisedApprovalRequest.id,
+          actorType: "SYSTEM",
+          actionType: APPROVAL_ACTION_TYPES.APPROVAL_REQUESTED,
+          metadataJson: toPrismaJsonValue({
+            approvalStatus: revisedApprovalRequest.status,
+            draftMessageId: revisedDraftMessage.id,
+            proposedByAgentAssignmentId,
+            revisedFromRejectedApproval: true,
+            sourceApprovalRequestId: sourceApprovalRequest.id,
+            reviewerFeedback: toFeedbackMetadataJson(reviewerFeedback),
+          }),
+        },
+        select: {
+          id: true,
+          actionType: true,
+          actorType: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    if (conversationTransition.changed) {
+      actionLogs.push(
+        await tx.actionLog.create({
+          data: {
+            workspaceId: input.workspaceId,
+            conversationId: sourceApprovalRequest.conversationId,
+            messageId: revisedDraftMessage.id,
+            approvalRequestId: revisedApprovalRequest.id,
+            actorType: "SYSTEM",
+            actionType: APPROVAL_ACTION_TYPES.STATE_CHANGED,
+            metadataJson: toPrismaJsonValue({
+              previousState: conversationTransition.from,
+              nextState: conversationTransition.to,
+              triggerType: conversationTransition.event.triggerType,
+              reason: conversationTransition.reason,
+              sourceApprovalRequestId: sourceApprovalRequest.id,
+            }),
+          },
+          select: {
+            id: true,
+            actionType: true,
+            actorType: true,
+            createdAt: true,
+          },
+        }),
+      );
+    }
+
+    return {
+      workspaceId: input.workspaceId,
+      conversationId: sourceApprovalRequest.conversationId,
+      sourceApprovalRequestId: sourceApprovalRequest.id,
+      sourceDraftMessageId: sourceApprovalRequest.draftMessageId,
+      approvalRequestId: revisedApprovalRequest.id,
+      draftMessageId: revisedDraftMessage.id,
+      approvalStatus: revisedApprovalRequest.status,
+      messageStatus: "PENDING_APPROVAL",
+      previousConversationState: sourceApprovalRequest.conversation.state,
+      conversationState: conversationTransition.to,
+      reviewerFeedback,
       actionLogs: actionLogs.map(toApprovalActionLogRecord),
     };
   });

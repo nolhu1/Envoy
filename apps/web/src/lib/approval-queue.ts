@@ -2,12 +2,14 @@ import "server-only";
 
 import {
   APPROVAL_REQUEST_STATUSES,
+  createRevisedApprovalRequestFromRejectedApproval,
   getApprovalRequestDetail,
   listApprovalRequests,
   reviewApprovalRequest,
   type ApprovalQueueFilter,
   type ApprovalQueueListItem,
   type ApprovalRequestDetail,
+  type ApprovalReviewerFeedback,
 } from "@envoy/db";
 
 import {
@@ -51,6 +53,7 @@ export type ApprovalQueueDetailView = Omit<
   participantSummary: string;
   assignedAgentLabel: string | null;
   draftPreview: string;
+  reviewerFeedback: ApprovalReviewerFeedback | null;
   recentMessages: ApprovalQueueDetailMessageRow[];
 };
 
@@ -69,6 +72,10 @@ export type ApprovalContinuationResult = {
   review: Awaited<ReturnType<typeof reviewApprovalRequest>>;
   send: ApprovedDraftSendResult | null;
 };
+
+export type ApprovalRevisionResult = Awaited<
+  ReturnType<typeof createRevisedApprovalRequestFromRejectedApproval>
+>;
 
 function buildAssignedAgentLabel(
   assignedAgent: ApprovalQueueListItem["conversation"]["assignedAgent"],
@@ -264,6 +271,22 @@ export async function editAndApproveWorkspaceApprovalRequest(
   };
 }
 
+export async function reviseRejectedWorkspaceApprovalRequest(
+  input: WorkspaceScopedApprovalDecisionInput & {
+    revisedContent: string;
+  },
+): Promise<ApprovalRevisionResult> {
+  return createRevisedApprovalRequestFromRejectedApproval({
+    workspaceId: input.workspaceId,
+    approvalRequestId: input.approvalRequestId,
+    revisedBodyText: input.revisedContent,
+    actorContext: {
+      actorType: "USER",
+      actorUserId: input.actorUserId,
+    },
+  });
+}
+
 export async function listCurrentWorkspaceApprovalQueue(
   filters: ApprovalQueueListFilters = {},
 ): Promise<ApprovalQueueListRow[]> {
@@ -333,6 +356,20 @@ export async function editAndApproveCurrentWorkspaceApprovalRequest(input: {
     approvalRequestId: input.approvalRequestId,
     editedContent: input.editedContent,
     nextConversationState: input.nextConversationState,
+  });
+}
+
+export async function reviseRejectedCurrentWorkspaceApprovalRequest(input: {
+  approvalRequestId: string;
+  revisedContent: string;
+}) {
+  const authContext = await requirePermission(PERMISSIONS.APPROVE_DRAFTS);
+
+  return reviseRejectedWorkspaceApprovalRequest({
+    workspaceId: authContext.workspaceId,
+    actorUserId: authContext.userId,
+    approvalRequestId: input.approvalRequestId,
+    revisedContent: input.revisedContent,
   });
 }
 

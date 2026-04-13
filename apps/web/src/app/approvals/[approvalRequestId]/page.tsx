@@ -6,6 +6,7 @@ import {
   approveApprovalRequestAction,
   editAndApproveApprovalRequestAction,
   rejectApprovalRequestAction,
+  reviseRejectedApprovalRequestAction,
 } from "@/app/approvals/[approvalRequestId]/actions";
 import { getCurrentWorkspaceApprovalQueueDetail } from "@/lib/approval-queue";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
@@ -62,6 +63,14 @@ function renderReviewBanner(input: {
     );
   }
 
+  if (input.reviewStatus === "revised") {
+    return (
+      <section className="mb-6 rounded-[24px] border border-cyan-200 bg-cyan-50 p-5 text-sm text-cyan-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+        Revised draft created and returned to the approval queue.
+      </section>
+    );
+  }
+
   if (input.reviewStatus === "send-failed" && input.reviewMessage) {
     return (
       <section className="mb-6 rounded-[24px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
@@ -101,6 +110,7 @@ export default async function ApprovalDetailPage({
   }
 
   const isPending = detail.status === "PENDING";
+  const feedbackContext = detail.reviewerFeedback;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-10">
@@ -291,21 +301,81 @@ export default async function ApprovalDetailPage({
                 </div>
               </div>
             ) : (
-              <div className="mt-8 rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                  Review outcome
-                </p>
-                <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-                  <p>
-                    Reviewed at: {formatTimestamp(detail.reviewedAt)}
+              <div className="mt-8 space-y-6">
+                <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
+                    Review outcome
                   </p>
-                  {detail.editedContent ? (
-                    <p>Edited content was applied before approval.</p>
-                  ) : null}
-                  {detail.rejectionReason ? (
-                    <p>Rejection reason: {detail.rejectionReason}</p>
-                  ) : null}
+                  <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                    <p>
+                      Reviewed at: {formatTimestamp(detail.reviewedAt)}
+                    </p>
+                    {detail.editedContent ? (
+                      <p>Edited content was applied before approval.</p>
+                    ) : null}
+                    {detail.rejectionReason ? (
+                      <p>Rejection reason: {detail.rejectionReason}</p>
+                    ) : null}
+                  </div>
                 </div>
+
+                {detail.status === "REJECTED" ? (
+                  <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-5">
+                    <h3 className="text-lg font-semibold text-amber-950">
+                      Revise draft
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-amber-900">
+                      Create a brand new approval draft from this rejected version. The
+                      original rejection stays in history, and the revised draft starts a
+                      fresh approval request.
+                    </p>
+
+                    {feedbackContext?.rejectionReason ? (
+                      <div className="mt-4 rounded-[20px] border border-amber-200 bg-white/80 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                          Reviewer feedback
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-amber-950">
+                          {feedbackContext.rejectionReason}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    <form
+                      action={reviseRejectedApprovalRequestAction}
+                      className="mt-4 space-y-4"
+                    >
+                      <input
+                        type="hidden"
+                        name="approvalRequestId"
+                        value={detail.approvalRequestId}
+                      />
+                      <label className="block space-y-2">
+                        <span className="text-sm font-medium text-amber-950">
+                          Revised content
+                        </span>
+                        <textarea
+                          required
+                          name="revisedContent"
+                          rows={8}
+                          defaultValue={
+                            detail.editedContent ??
+                            detail.draftMessage.bodyText ??
+                            ""
+                          }
+                          className="w-full rounded-[20px] border border-amber-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-amber-400"
+                        />
+                      </label>
+                      <div className="flex items-center justify-end">
+                        <ApprovalSubmitButton
+                          idleLabel="Create revised draft"
+                          pendingLabel="Creating revision..."
+                          tone="secondary"
+                        />
+                      </div>
+                    </form>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

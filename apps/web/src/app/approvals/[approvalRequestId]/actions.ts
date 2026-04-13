@@ -7,6 +7,7 @@ import {
   approveCurrentWorkspaceApprovalRequest,
   editAndApproveCurrentWorkspaceApprovalRequest,
   rejectCurrentWorkspaceApprovalRequest,
+  reviseRejectedCurrentWorkspaceApprovalRequest,
 } from "@/lib/approval-queue";
 
 function buildApprovalDetailRedirect(
@@ -159,6 +160,51 @@ export async function editAndApproveApprovalRequestAction(formData: FormData) {
           error instanceof Error
             ? error.message
             : "Unable to edit and approve the draft.",
+      }),
+    );
+  }
+}
+
+export async function reviseRejectedApprovalRequestAction(formData: FormData) {
+  const approvalRequestId = readApprovalRequestId(formData);
+  const revisedContent = String(formData.get("revisedContent") ?? "").trim();
+
+  if (!approvalRequestId) {
+    redirect("/approvals");
+  }
+
+  if (!revisedContent) {
+    redirect(
+      buildApprovalDetailRedirect(approvalRequestId, {
+        review: "error",
+        message: "Revised draft content is required.",
+      }),
+    );
+  }
+
+  try {
+    const result = await reviseRejectedCurrentWorkspaceApprovalRequest({
+      approvalRequestId,
+      revisedContent,
+    });
+
+    redirect(
+      buildApprovalDetailRedirect(result.approvalRequestId, {
+        review: "revised",
+      }),
+    );
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+
+    redirect(
+      buildApprovalDetailRedirect(approvalRequestId, {
+        review: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to create a revised approval draft.",
       }),
     );
   }
