@@ -1,4 +1,15 @@
 export { getPrisma } from "./client";
+export {
+  ALLOWED_APPROVAL_REQUEST_STATUS_TRANSITIONS,
+  APPROVAL_ACTION_TYPES,
+  APPROVAL_REQUEST_STATUSES,
+  ApprovalRequestTransitionError,
+  assertValidApprovalRequestStatusTransition,
+  createApprovalRequestForAgentDraft,
+  getAllowedApprovalRequestStatusTransitions,
+  isValidApprovalRequestStatusTransition,
+  reviewApprovalRequest,
+} from "./approval-requests";
 export { createPrismaCanonicalPersistenceWriter } from "./inbound-writer";
 export { createPrismaCanonicalOutboundWriter } from "./outbound-writer";
 export {
@@ -12,6 +23,17 @@ export {
   rotateSecret,
   updateSecret,
 } from "./connector-secret-store";
+export type {
+  ApprovalActionLogRecord,
+  ApprovalActionType,
+  ApprovalActorContext,
+  ApprovalRequestStatus,
+  ApprovalReviewDecision,
+  CreateApprovalRequestForAgentDraftInput,
+  CreateApprovalRequestForAgentDraftResult,
+  ReviewApprovalRequestInput,
+  ReviewApprovalRequestResult,
+} from "./approval-requests";
 export type {
   ResolveConnectorContextByIdInput,
   ResolveConnectorContextFromIntegrationInput,
