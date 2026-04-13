@@ -15,7 +15,9 @@ import {
   formatParticipantSummary,
   getParticipantDisplayName,
 } from "@/lib/conversation-display";
-import { PERMISSIONS, requirePermission } from "@/lib/permissions";
+import { sendWorkspaceGmailReply } from "@/lib/gmail-send";
+import { hasPermission, PERMISSIONS, requirePermission } from "@/lib/permissions";
+import { sendWorkspaceSlackReply } from "@/lib/slack-send";
 
 type QueueConversationDisplay = {
   platform: ApprovalQueueListItem["conversation"]["platform"];
@@ -57,6 +59,15 @@ type WorkspaceScopedApprovalDecisionInput = {
   actorUserId: string;
   approvalRequestId: string;
   nextConversationState?: Parameters<typeof reviewApprovalRequest>[0]["nextConversationState"];
+};
+
+type ApprovedDraftSendResult =
+  | Awaited<ReturnType<typeof sendWorkspaceGmailReply>>
+  | Awaited<ReturnType<typeof sendWorkspaceSlackReply>>;
+
+export type ApprovalContinuationResult = {
+  review: Awaited<ReturnType<typeof reviewApprovalRequest>>;
+  send: ApprovedDraftSendResult | null;
 };
 
 function buildAssignedAgentLabel(
@@ -173,14 +184,34 @@ export async function getWorkspaceApprovalQueueDetail(input: {
 
 export async function approveWorkspaceApprovalRequest(
   input: WorkspaceScopedApprovalDecisionInput,
-) {
-  return reviewApprovalRequest({
+): Promise<ApprovalContinuationResult> {
+  const approvalDetail = await getWorkspaceApprovalQueueDetail({
+    workspaceId: input.workspaceId,
+    approvalRequestId: input.approvalRequestId,
+    recentMessageLimit: 1,
+  });
+
+  if (!approvalDetail) {
+    throw new Error("The approval request could not be loaded.");
+  }
+
+  const review = await reviewApprovalRequest({
     workspaceId: input.workspaceId,
     approvalRequestId: input.approvalRequestId,
     reviewedByUserId: input.actorUserId,
     decision: APPROVAL_REQUEST_STATUSES.APPROVED,
     nextConversationState: input.nextConversationState ?? null,
   });
+
+  return {
+    review,
+    send: await sendApprovedDraftMessage({
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      draftMessageId: review.draftMessageId,
+      platform: approvalDetail.conversation.platform,
+    }),
+  };
 }
 
 export async function rejectWorkspaceApprovalRequest(
@@ -202,8 +233,18 @@ export async function editAndApproveWorkspaceApprovalRequest(
   input: WorkspaceScopedApprovalDecisionInput & {
     editedContent: string;
   },
-) {
-  return reviewApprovalRequest({
+): Promise<ApprovalContinuationResult> {
+  const approvalDetail = await getWorkspaceApprovalQueueDetail({
+    workspaceId: input.workspaceId,
+    approvalRequestId: input.approvalRequestId,
+    recentMessageLimit: 1,
+  });
+
+  if (!approvalDetail) {
+    throw new Error("The approval request could not be loaded.");
+  }
+
+  const review = await reviewApprovalRequest({
     workspaceId: input.workspaceId,
     approvalRequestId: input.approvalRequestId,
     reviewedByUserId: input.actorUserId,
@@ -211,6 +252,16 @@ export async function editAndApproveWorkspaceApprovalRequest(
     editedContent: input.editedContent,
     nextConversationState: input.nextConversationState ?? null,
   });
+
+  return {
+    review,
+    send: await sendApprovedDraftMessage({
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      draftMessageId: review.draftMessageId,
+      platform: approvalDetail.conversation.platform,
+    }),
+  };
 }
 
 export async function listCurrentWorkspaceApprovalQueue(
@@ -242,6 +293,7 @@ export async function approveCurrentWorkspaceApprovalRequest(input: {
   nextConversationState?: Parameters<typeof approveWorkspaceApprovalRequest>[0]["nextConversationState"];
 }) {
   const authContext = await requirePermission(PERMISSIONS.APPROVE_DRAFTS);
+  assertCanSendApprovedDrafts(authContext.role);
 
   return approveWorkspaceApprovalRequest({
     workspaceId: authContext.workspaceId,
@@ -273,6 +325,7 @@ export async function editAndApproveCurrentWorkspaceApprovalRequest(input: {
   nextConversationState?: Parameters<typeof editAndApproveWorkspaceApprovalRequest>[0]["nextConversationState"];
 }) {
   const authContext = await requirePermission(PERMISSIONS.APPROVE_DRAFTS);
+  assertCanSendApprovedDrafts(authContext.role);
 
   return editAndApproveWorkspaceApprovalRequest({
     workspaceId: authContext.workspaceId,
@@ -280,5 +333,34 @@ export async function editAndApproveCurrentWorkspaceApprovalRequest(input: {
     approvalRequestId: input.approvalRequestId,
     editedContent: input.editedContent,
     nextConversationState: input.nextConversationState,
+  });
+}
+
+function assertCanSendApprovedDrafts(role: Parameters<typeof hasPermission>[0]) {
+  if (!hasPermission(role, PERMISSIONS.SEND_MESSAGES)) {
+    throw new Error(
+      "You do not have permission to send approved drafts.",
+    );
+  }
+}
+
+async function sendApprovedDraftMessage(input: {
+  workspaceId: string;
+  actorUserId: string;
+  draftMessageId: string;
+  platform: "EMAIL" | "SLACK";
+}) {
+  if (input.platform === "EMAIL") {
+    return sendWorkspaceGmailReply({
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      messageId: input.draftMessageId,
+    });
+  }
+
+  return sendWorkspaceSlackReply({
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    messageId: input.draftMessageId,
   });
 }

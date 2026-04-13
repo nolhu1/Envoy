@@ -4,7 +4,7 @@ import {
   buildGmailAuthorizationUrl,
   buildSlackAuthorizationUrl,
 } from "@envoy/connectors";
-import { getPrisma, revokeSecret } from "@envoy/db";
+import { createApprovalRequestForAgentDraft, getPrisma, revokeSecret } from "@envoy/db";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
@@ -67,6 +67,20 @@ async function requireWorkspaceForIntegrationManagement() {
 
   if (!workspace || workspace.id !== authContext.workspaceId) {
     throw new Error("The current workspace could not be loaded.");
+  }
+
+  return {
+    authContext,
+    workspace,
+  };
+}
+
+async function requireAdminWorkspaceDevAccess() {
+  const { authContext, workspace } =
+    await requireWorkspaceForIntegrationManagement();
+
+  if (authContext.role !== "ADMIN") {
+    throw new Error("Only admins can use temporary dev helpers.");
   }
 
   return {
@@ -204,4 +218,120 @@ export async function disconnectIntegrationAction(formData: FormData) {
       integration.platform === "EMAIL" ? "gmail" : "slack"
     }&action=disconnect&status=completed`,
   );
+}
+
+export async function createTestApprovalRequestAction(formData: FormData) {
+  const { authContext, workspace } = await requireAdminWorkspaceDevAccess();
+  const prisma = getPrisma();
+  const requestedConversationId = String(
+    formData.get("conversationId") ?? "",
+  ).trim();
+
+  const conversation = requestedConversationId
+    ? await prisma.conversation.findFirst({
+        where: {
+          id: requestedConversationId,
+          workspaceId: workspace.id,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          platform: true,
+          subject: true,
+          assignedAgentId: true,
+          assignedAgent: {
+            select: {
+              id: true,
+              isActive: true,
+            },
+          },
+        },
+      })
+    : await prisma.conversation.findFirst({
+        where: {
+          workspaceId: workspace.id,
+          deletedAt: null,
+        },
+        orderBy: [{ lastMessageAt: "desc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          platform: true,
+          subject: true,
+          assignedAgentId: true,
+          assignedAgent: {
+            select: {
+              id: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+
+  if (!conversation) {
+    redirect(
+      "/settings/workspace?integration=approval-test&action=create&status=error&message=No+eligible+conversation+was+found+for+test+approval+creation.",
+    );
+  }
+
+  let agentAssignmentId =
+    conversation.assignedAgent?.isActive && conversation.assignedAgentId
+      ? conversation.assignedAgentId
+      : null;
+
+  if (!agentAssignmentId) {
+    const agentAssignment = await prisma.agentAssignment.create({
+      data: {
+        workspaceId: workspace.id,
+        conversationId: conversation.id,
+        goal: "Temporary dev-only approval queue testing",
+        instructions:
+          "TODO(remove-after-testing): temporary agent assignment used only for approval queue testing.",
+        tone: "Clear and concise",
+        allowedActionsJson: ["reply_draft"],
+        escalationRulesJson: {
+          temporary: true,
+          createdFor: "approval_queue_dev_testing",
+        } as never,
+        assignedByUserId: authContext.userId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    agentAssignmentId = agentAssignment.id;
+
+    await prisma.conversation.update({
+      where: {
+        id: conversation.id,
+      },
+      data: {
+        assignedAgentId: agentAssignment.id,
+      },
+    });
+  }
+
+  // TODO(remove-after-testing): temporary admin-only approval seed helper.
+  const result = await createApprovalRequestForAgentDraft({
+    workspaceId: workspace.id,
+    conversationId: conversation.id,
+    proposedByAgentAssignmentId: agentAssignmentId,
+    bodyText:
+      conversation.platform === "SLACK"
+        ? "Hi there,\n\nThis is a temporary Slack approval test draft created from workspace settings so Phase J approval-to-send can be exercised before the AI drafting UI exists.\n\nBest,\nEnvoy"
+        : "Hi there,\n\nThis is a temporary Gmail approval test draft created from workspace settings so Phase J approval-to-send can be exercised before the AI drafting UI exists.\n\nBest,\nEnvoy",
+    actorContext: {
+      actorType: "AGENT",
+      actorAgentAssignmentId: agentAssignmentId,
+    },
+    platformMetadataJson: {
+      temporary: true,
+      createdFor: "approval_queue_dev_testing",
+      createdByUserId: authContext.userId,
+      sourceConversationId: conversation.id,
+    },
+  });
+
+  redirect(`/approvals/${result.approvalRequestId}`);
 }

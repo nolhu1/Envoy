@@ -62,6 +62,14 @@ function renderReviewBanner(input: {
     );
   }
 
+  if (input.reviewStatus === "send-failed" && input.reviewMessage) {
+    return (
+      <section className="mb-6 rounded-[24px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+        {input.reviewMessage}
+      </section>
+    );
+  }
+
   if (input.reviewStatus === "error" && input.reviewMessage) {
     return (
       <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">

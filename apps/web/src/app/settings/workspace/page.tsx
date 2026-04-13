@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getPrisma } from "@envoy/db";
 
 import {
   hasPermission,
@@ -7,6 +8,7 @@ import {
 } from "@/lib/permissions";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import {
+  createTestApprovalRequestAction,
   disconnectIntegrationAction,
   startGmailConnectAction,
   startSlackConnectAction,
@@ -36,10 +38,37 @@ export default async function WorkspaceSettingsPage({
     authContext.role,
     PERMISSIONS.CONNECT_INTEGRATIONS,
   );
+  const canUseDevApprovalHelper =
+    canManageIntegrations && authContext.role === "ADMIN";
   const workspace = await getCurrentWorkspace();
   const managedIntegrations = canManageIntegrations
     ? await getCurrentWorkspaceManagedIntegrations()
     : null;
+  const devApprovalConversations = canUseDevApprovalHelper
+    ? await getPrisma().conversation.findMany({
+        where: {
+          workspaceId: authContext.workspaceId,
+          deletedAt: null,
+        },
+        orderBy: [{ lastMessageAt: "desc" }, { createdAt: "asc" }],
+        take: 25,
+        select: {
+          id: true,
+          platform: true,
+          subject: true,
+          lastMessageAt: true,
+          participants: {
+            select: {
+              displayName: true,
+              email: true,
+              handle: true,
+            },
+            orderBy: [{ createdAt: "asc" }],
+            take: 2,
+          },
+        },
+      })
+    : [];
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const integrationName = readSearchParam(resolvedSearchParams?.integration);
   const integrationAction = readSearchParam(resolvedSearchParams?.action);
@@ -91,6 +120,18 @@ export default async function WorkspaceSettingsPage({
 
     if (
       integrationStatus === "completed" &&
+      integrationAction === "create" &&
+      integrationName === "approval-test"
+    ) {
+      return (
+        <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+          Temporary test approval request created successfully.
+        </section>
+      );
+    }
+
+    if (
+      integrationStatus === "completed" &&
       integrationAction === "disconnect" &&
       integrationName
     ) {
@@ -115,13 +156,17 @@ export default async function WorkspaceSettingsPage({
     if (
       integrationStatus === "error" &&
       integrationMessage &&
-      (integrationName === "gmail" || integrationName === "slack")
+      (integrationName === "gmail" ||
+        integrationName === "slack" ||
+        integrationName === "approval-test")
     ) {
       return (
         <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
           {integrationAction === "sync"
             ? `${integrationName === "gmail" ? "Gmail" : "Slack"} sync failed`
-            : `${integrationName === "gmail" ? "Gmail" : "Slack"} connect failed`}
+            : integrationName === "approval-test"
+              ? "Test approval request creation failed"
+              : `${integrationName === "gmail" ? "Gmail" : "Slack"} connect failed`}
           : {integrationMessage}
         </section>
       );
@@ -233,6 +278,64 @@ export default async function WorkspaceSettingsPage({
             </p>
           </section>
         )}
+
+        {canUseDevApprovalHelper ? (
+          <section className="mt-8 rounded-[24px] border border-amber-200 bg-amber-50 p-6 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-700">
+              Dev Only
+            </p>
+            <h2 className="mt-3 text-xl font-semibold text-amber-950">
+              Temporary approval seed helper
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-amber-900">
+              TODO(remove-after-testing): create a temporary AI-style draft and
+              approval request for an existing Gmail or Slack conversation so
+              Phase J approval-to-send can be tested before drafting UI exists.
+            </p>
+            <form action={createTestApprovalRequestAction} className="mt-5 space-y-4">
+              <label className="flex flex-col gap-2 text-sm text-amber-950">
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
+                  Conversation
+                </span>
+                <select
+                  name="conversationId"
+                  className="rounded-2xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-900"
+                  defaultValue=""
+                >
+                  <option value="">
+                    Auto-pick most recent conversation
+                  </option>
+                  {devApprovalConversations.map((conversation) => {
+                    const fallbackLabel =
+                      conversation.participants
+                        .map(
+                          (participant) =>
+                            participant.displayName ||
+                            participant.email ||
+                            participant.handle,
+                        )
+                        .filter(Boolean)
+                        .join(", ") || "Untitled conversation";
+
+                    return (
+                      <option key={conversation.id} value={conversation.id}>
+                        {conversation.platform === "EMAIL" ? "Gmail" : "Slack"} ·{" "}
+                        {conversation.subject?.trim() || fallbackLabel}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+
+              <button
+                type="submit"
+                className="inline-flex rounded-full border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-950 transition hover:border-amber-400 hover:bg-amber-100"
+              >
+                Create test approval request
+              </button>
+            </form>
+          </section>
+        ) : null}
 
         {canManageIntegrations ? (
           <section className="mt-8 rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
