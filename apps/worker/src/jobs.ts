@@ -1,3 +1,5 @@
+import type { WorkerRetryPolicy } from "./retry";
+
 export const WORKER_JOB_TYPES = {
   CONNECTOR_SYNC: "connector_sync",
   CONNECTOR_PROCESS_EVENT: "connector_process_event",
@@ -57,6 +59,15 @@ export type WorkerJobPayloadByType = {
   agent_run: AgentRunJobPayload;
 };
 
+export type WorkerJobErrorSnapshot = {
+  message: string;
+  code?: string | null;
+  details?: Record<string, unknown> | null;
+  stack?: string | null;
+  retryable?: boolean | null;
+  failedAt: string;
+};
+
 export type WorkerJobEnvelope<
   TType extends WorkerJobType = WorkerJobType,
 > = {
@@ -67,6 +78,10 @@ export type WorkerJobEnvelope<
   queuedAt: string;
   runAt?: string | null;
   attempt: number;
+  retryPolicy: WorkerRetryPolicy;
+  lastAttemptedAt?: string | null;
+  lastError?: WorkerJobErrorSnapshot | null;
+  replayOfJobId?: string | null;
 };
 
 export type WorkerJob =

@@ -1,11 +1,16 @@
 import { createWorkerJobRegistry } from "./handlers";
 import { InMemoryJobQueue, InMemoryWorkerRunner } from "./in-memory-runner";
 import { WORKER_JOB_TYPES } from "./jobs";
+import { WORKER_BACKOFF_STRATEGIES } from "./retry";
 
 async function main() {
   const registry = createWorkerJobRegistry();
   const queue = new InMemoryJobQueue();
-  const runner = new InMemoryWorkerRunner(registry, queue);
+  const runner = new InMemoryWorkerRunner(registry, queue, {
+    logger: (entry) => {
+      console.log("[worker]", JSON.stringify(entry));
+    },
+  });
 
   console.log("[worker] booted");
   console.log("[worker] registered job types:", registry.listJobTypes().join(", "));
@@ -19,10 +24,25 @@ async function main() {
         integrationId: "dev-integration",
         platform: "EMAIL",
       },
+      retryPolicy: {
+        maxAttempts: 3,
+        backoff: {
+          strategy: WORKER_BACKOFF_STRATEGIES.FIXED,
+          delayMs: 1_000,
+        },
+      },
     });
 
     const results = await runner.processAll();
     console.log("[worker] processed jobs:", JSON.stringify(results, null, 2));
+    console.log(
+      "[worker] queued jobs after run:",
+      JSON.stringify(queue.listQueuedJobs(), null, 2),
+    );
+    console.log(
+      "[worker] dead letters:",
+      JSON.stringify(queue.getDeadLetters(), null, 2),
+    );
     return;
   }
 
