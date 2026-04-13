@@ -1,3 +1,5 @@
+import type { ConversationState } from "./workflow";
+
 export const ENVOY_EVENT_SCHEMA_VERSION = 1 as const;
 
 export const ENVOY_EVENT_SOURCES = {
@@ -95,26 +97,8 @@ export type ConversationEventPayload = {
   integrationId?: string | null;
   platform?: EnvoyPlatform | null;
   subject?: string | null;
-  state?:
-    | "UNASSIGNED"
-    | "ACTIVE"
-    | "WAITING"
-    | "FOLLOW_UP_DUE"
-    | "AWAITING_APPROVAL"
-    | "ESCALATED"
-    | "COMPLETED"
-    | "CLOSED"
-    | null;
-  previousState?:
-    | "UNASSIGNED"
-    | "ACTIVE"
-    | "WAITING"
-    | "FOLLOW_UP_DUE"
-    | "AWAITING_APPROVAL"
-    | "ESCALATED"
-    | "COMPLETED"
-    | "CLOSED"
-    | null;
+  state?: ConversationState | null;
+  previousState?: ConversationState | null;
   metadata?: EventPayloadMetadata | null;
 };
 
