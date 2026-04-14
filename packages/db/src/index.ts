@@ -5,6 +5,11 @@ export {
 } from "./agent-assignments";
 export { buildAgentConversationContext } from "./agent-context";
 export {
+  STRUCTURED_MEMORY_FACT_KEYS,
+  listStructuredMemoryFacts,
+  upsertStructuredMemoryFacts,
+} from "./structured-memory";
+export {
   ALLOWED_APPROVAL_REQUEST_STATUS_TRANSITIONS,
   APPROVAL_ACTION_TYPES,
   APPROVAL_REQUEST_STATUSES,
@@ -45,6 +50,13 @@ export type {
   AgentConversationContext,
   BuildAgentConversationContextInput,
 } from "./agent-context";
+export type {
+  ListStructuredMemoryFactsInput,
+  StructuredMemoryFactKey,
+  StructuredMemoryFactRecord,
+  UpsertStructuredMemoryFactInput,
+  UpsertStructuredMemoryFactsInput,
+} from "./structured-memory";
 export type {
   ApprovalActionLogRecord,
   ApprovalActionType,
