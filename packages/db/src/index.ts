@@ -3,6 +3,7 @@ export {
   AGENT_ASSIGNMENT_ACTION_TYPES,
   assignAgentToConversation,
 } from "./agent-assignments";
+export { buildAgentConversationContext } from "./agent-context";
 export {
   ALLOWED_APPROVAL_REQUEST_STATUS_TRANSITIONS,
   APPROVAL_ACTION_TYPES,
@@ -35,6 +36,15 @@ export type {
   AssignAgentToConversationInput,
   AssignAgentToConversationResult,
 } from "./agent-assignments";
+export type {
+  AgentContextAssignment,
+  AgentContextApprovalSummary,
+  AgentContextFact,
+  AgentContextMessage,
+  AgentContextParticipant,
+  AgentConversationContext,
+  BuildAgentConversationContextInput,
+} from "./agent-context";
 export type {
   ApprovalActionLogRecord,
   ApprovalActionType,
