@@ -10,6 +10,11 @@ export {
   upsertStructuredMemoryFacts,
 } from "./structured-memory";
 export {
+  AGENT_PLANNER_ACTION_TYPES,
+  AGENT_TRIGGER_TYPES,
+  planAgentResponse,
+} from "./response-planner";
+export {
   ALLOWED_APPROVAL_REQUEST_STATUS_TRANSITIONS,
   APPROVAL_ACTION_TYPES,
   APPROVAL_REQUEST_STATUSES,
@@ -57,6 +62,13 @@ export type {
   UpsertStructuredMemoryFactInput,
   UpsertStructuredMemoryFactsInput,
 } from "./structured-memory";
+export type {
+  AgentPlannerActionType,
+  AgentResponsePlan,
+  AgentSuggestedWorkflowStateChange,
+  AgentTriggerContext,
+  AgentTriggerType,
+} from "./response-planner";
 export type {
   ApprovalActionLogRecord,
   ApprovalActionType,
