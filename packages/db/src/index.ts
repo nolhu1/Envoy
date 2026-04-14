@@ -1,5 +1,9 @@
 export { getPrisma } from "./client";
 export {
+  AGENT_ASSIGNMENT_ACTION_TYPES,
+  assignAgentToConversation,
+} from "./agent-assignments";
+export {
   ALLOWED_APPROVAL_REQUEST_STATUS_TRANSITIONS,
   APPROVAL_ACTION_TYPES,
   APPROVAL_REQUEST_STATUSES,
@@ -26,6 +30,11 @@ export {
   rotateSecret,
   updateSecret,
 } from "./connector-secret-store";
+export type {
+  AgentAssignmentActionType,
+  AssignAgentToConversationInput,
+  AssignAgentToConversationResult,
+} from "./agent-assignments";
 export type {
   ApprovalActionLogRecord,
   ApprovalActionType,
