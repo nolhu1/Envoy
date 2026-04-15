@@ -6,6 +6,11 @@ export {
   sanitizeSuggestedWorkflowStateChange,
 } from "./draft-generator";
 export {
+  AGENT_ESCALATION_REASON_CODES,
+  evaluateAgentEscalation,
+  persistAgentEscalationDecision,
+} from "./escalation";
+export {
   AGENT_ASSIGNMENT_ACTION_TYPES,
   assignAgentToConversation,
 } from "./agent-assignments";
@@ -54,6 +59,13 @@ export type {
   DraftGenerationStructuredDatum,
   DraftGeneratorInput,
 } from "./draft-generator";
+export type {
+  AgentEscalationDecision,
+  AgentEscalationReasonCode,
+  EvaluateAgentEscalationInput,
+  PersistAgentEscalationDecisionInput,
+  PersistAgentEscalationDecisionResult,
+} from "./escalation";
 export type {
   AgentAssignmentActionType,
   AssignAgentToConversationInput,

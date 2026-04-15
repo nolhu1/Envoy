@@ -4,7 +4,10 @@ import {
   AGENT_PLANNER_ACTION_TYPES,
   buildAgentConversationContext,
   createApprovalRequestForAgentDraft,
+  evaluateAgentEscalation,
+  persistAgentEscalationDecision,
   planAgentResponse,
+  type AgentEscalationDecision,
   type AgentConversationContext,
   type AgentResponsePlan,
   type AgentTriggerContext,
@@ -16,10 +19,21 @@ import { generateDraftFromPlanner } from "@/lib/draft-generator";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 
 export type GeneratedDraftApprovalFlowResult = {
+  status: "draft_created";
   context: AgentConversationContext;
   planner: AgentResponsePlan;
+  escalation: AgentEscalationDecision;
   generation: DraftGenerationResult;
   approval: Awaited<ReturnType<typeof createApprovalRequestForAgentDraft>>;
+};
+
+export type EscalatedDraftApprovalFlowResult = {
+  status: "escalated";
+  context: AgentConversationContext;
+  planner: AgentResponsePlan;
+  escalation: AgentEscalationDecision;
+  generation: DraftGenerationResult | null;
+  approval: null;
 };
 
 export async function createApprovalFromGeneratedDraftResult(input: {
@@ -87,7 +101,7 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
   generationConfig?: DraftGenerationConfig | null;
   messageLimit?: number;
   factLimit?: number;
-}): Promise<GeneratedDraftApprovalFlowResult> {
+}): Promise<GeneratedDraftApprovalFlowResult | EscalatedDraftApprovalFlowResult> {
   const authContext = await requirePermission(PERMISSIONS.ASSIGN_AGENTS);
 
   const context = await buildAgentConversationContext({
@@ -102,6 +116,34 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
     trigger: input.trigger,
   });
 
+  const preGenerationEscalation = evaluateAgentEscalation({
+    context,
+    planner,
+    trigger: input.trigger,
+    generation: null,
+  });
+
+  if (preGenerationEscalation.shouldEscalate) {
+    await persistAgentEscalationDecision({
+      workspaceId: authContext.workspaceId,
+      conversationId: context.conversationId,
+      actorAgentAssignmentId: context.assignment?.id ?? null,
+      trigger: input.trigger,
+      planner,
+      generation: null,
+      escalation: preGenerationEscalation,
+    });
+
+    return {
+      status: "escalated",
+      context,
+      planner,
+      escalation: preGenerationEscalation,
+      generation: null,
+      approval: null,
+    };
+  }
+
   if (planner.actionType !== AGENT_PLANNER_ACTION_TYPES.DRAFT_REPLY) {
     throw new Error(
       `Planner selected "${planner.actionType}" instead of "${AGENT_PLANNER_ACTION_TYPES.DRAFT_REPLY}". ${planner.rationaleSummary}`,
@@ -115,6 +157,34 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
     config: input.generationConfig ?? null,
   });
 
+  const postGenerationEscalation = evaluateAgentEscalation({
+    context,
+    planner,
+    trigger: input.trigger,
+    generation,
+  });
+
+  if (postGenerationEscalation.shouldEscalate) {
+    await persistAgentEscalationDecision({
+      workspaceId: authContext.workspaceId,
+      conversationId: context.conversationId,
+      actorAgentAssignmentId: context.assignment?.id ?? null,
+      trigger: input.trigger,
+      planner,
+      generation,
+      escalation: postGenerationEscalation,
+    });
+
+    return {
+      status: "escalated",
+      context,
+      planner,
+      escalation: postGenerationEscalation,
+      generation,
+      approval: null,
+    };
+  }
+
   const approval = await createApprovalFromGeneratedDraftResult({
     workspaceId: authContext.workspaceId,
     context,
@@ -124,8 +194,10 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
   });
 
   return {
+    status: "draft_created",
     context,
     planner,
+    escalation: postGenerationEscalation,
     generation,
     approval,
   };
