@@ -53,6 +53,7 @@ export type CreateApprovalRequestForAgentDraftInput = {
   proposedByAgentAssignmentId?: string | null;
   actorContext?: ApprovalActorContext | null;
   platformMetadataJson?: unknown;
+  generationMetadataJson?: unknown;
 };
 
 export type CreateApprovalRequestForAgentDraftResult = {
@@ -306,6 +307,14 @@ function normalizeEditedContent(value: string | null | undefined) {
 
 function toPrismaJsonValue(value: unknown) {
   return (value ?? null) as never;
+}
+
+function toOptionalJsonObject(value: unknown) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  return null;
 }
 
 function toFeedbackMetadataJson(
@@ -821,6 +830,7 @@ export async function createApprovalRequestForAgentDraft(
 
   const draftedByActor = buildMessageDraftedActor(input);
   assertValidActorContext(draftedByActor);
+  const generationMetadata = toOptionalJsonObject(input.generationMetadataJson);
 
   return prisma.$transaction(async (tx) => {
     const conversation = await tx.conversation.findFirst({
@@ -887,6 +897,11 @@ export async function createApprovalRequestForAgentDraft(
         platformMetadataJson: toPrismaJsonValue(
           buildApprovalDraftPlatformMetadata({
             platformMetadataJson: input.platformMetadataJson,
+            additionalMetadata: generationMetadata
+              ? {
+                  generationMetadata,
+                }
+              : undefined,
           }),
         ),
       },
@@ -934,6 +949,8 @@ export async function createApprovalRequestForAgentDraft(
           metadataJson: toPrismaJsonValue({
             messageStatus: "PENDING_APPROVAL",
             draftOrigin: "agent",
+            generationMetadata,
+            generationMetadataPresent: Boolean(generationMetadata),
           }),
         },
         select: {
@@ -955,6 +972,8 @@ export async function createApprovalRequestForAgentDraft(
             approvalStatus: approvalRequest.status,
             draftMessageId: draftMessage.id,
             proposedByAgentAssignmentId: input.proposedByAgentAssignmentId ?? null,
+            generationMetadata,
+            generationMetadataPresent: Boolean(generationMetadata),
           }),
         },
         select: {
