@@ -4,14 +4,21 @@ import {
   buildGmailAuthorizationUrl,
   buildSlackAuthorizationUrl,
 } from "@envoy/connectors";
-import { createApprovalRequestForAgentDraft, getPrisma, revokeSecret } from "@envoy/db";
+import {
+  AGENT_TRIGGER_TYPES,
+  createApprovalRequestForAgentDraft,
+  getPrisma,
+  revokeSecret,
+} from "@envoy/db";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { PERMISSIONS } from "@/lib/permissions";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import { requireAuthenticatedEntryPoint } from "@/lib/workspace-guards";
+import { generateDraftFromPlanner } from "@/lib/draft-generator";
 import { syncWorkspaceGmailIntegration } from "@/lib/gmail-ingestion";
+import { planAgentResponseForWorkspace } from "@/lib/response-planner";
 import { syncWorkspaceSlackIntegration } from "@/lib/slack-ingestion";
 
 export async function startGmailConnectAction() {
@@ -111,6 +118,162 @@ async function getManagedIntegration(input: {
       platformMetadataJson: true,
     },
   });
+}
+
+async function resolveDevConversation(input: {
+  workspaceId: string;
+  requestedConversationId: string;
+}) {
+  const prisma = getPrisma();
+
+  return input.requestedConversationId
+    ? prisma.conversation.findFirst({
+        where: {
+          id: input.requestedConversationId,
+          workspaceId: input.workspaceId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          platform: true,
+          subject: true,
+          assignedAgentId: true,
+          assignedAgent: {
+            select: {
+              id: true,
+              isActive: true,
+            },
+          },
+        },
+      })
+    : prisma.conversation.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          deletedAt: null,
+        },
+        orderBy: [{ lastMessageAt: "desc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          platform: true,
+          subject: true,
+          assignedAgentId: true,
+          assignedAgent: {
+            select: {
+              id: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+}
+
+async function ensureActiveDevAgentAssignment(input: {
+  workspaceId: string;
+  conversationId: string;
+  assignedByUserId: string;
+  assignedAgentId: string | null;
+  assignedAgentIsActive: boolean;
+  requireDraftReplyAction?: boolean;
+}) {
+  const prisma = getPrisma();
+  const existingActiveAssignment =
+    input.assignedAgentIsActive && input.assignedAgentId
+      ? await prisma.agentAssignment.findFirst({
+          where: {
+            id: input.assignedAgentId,
+            workspaceId: input.workspaceId,
+            conversationId: input.conversationId,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            allowedActionsJson: true,
+          },
+        })
+      : null;
+
+  const requiresDraftReply = Boolean(input.requireDraftReplyAction);
+  const hasDraftReplyPermission = isDraftReplyAllowed(
+    existingActiveAssignment?.allowedActionsJson,
+  );
+
+  let agentAssignmentId =
+    existingActiveAssignment &&
+    (!requiresDraftReply || hasDraftReplyPermission)
+      ? existingActiveAssignment.id
+      : null;
+
+  if (!agentAssignmentId) {
+    await prisma.agentAssignment.updateMany({
+      where: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        isActive: true,
+      },
+      data: {
+        isActive: false,
+        endedAt: new Date(),
+      },
+    });
+
+    const agentAssignment = await prisma.agentAssignment.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        goal: "Temporary dev-only agent planning and draft preview",
+        instructions:
+          "TODO(remove-after-testing): temporary assignment used only for draft generator preview testing.",
+        tone: "Clear and concise",
+        allowedActionsJson: ["draft_reply", "ask_for_missing_information", "wait", "escalate"],
+        escalationRulesJson: {
+          temporary: true,
+          createdFor: "draft_generator_dev_testing",
+        } as never,
+        assignedByUserId: input.assignedByUserId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    agentAssignmentId = agentAssignment.id;
+
+    await prisma.conversation.update({
+      where: {
+        id: input.conversationId,
+      },
+      data: {
+        assignedAgentId: agentAssignment.id,
+      },
+    });
+  }
+
+  return agentAssignmentId;
+}
+
+function isDraftReplyAllowed(value: unknown) {
+  if (value == null) {
+    return true;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => item === "draft_reply");
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const allowedActions = record.allowedActions;
+    if (Array.isArray(allowedActions)) {
+      return allowedActions.some((item) => item === "draft_reply");
+    }
+
+    if (typeof record.draft_reply === "boolean") {
+      return record.draft_reply;
+    }
+  }
+
+  return false;
 }
 
 export async function syncIntegrationAction(formData: FormData) {
@@ -222,50 +385,13 @@ export async function disconnectIntegrationAction(formData: FormData) {
 
 export async function createTestApprovalRequestAction(formData: FormData) {
   const { authContext, workspace } = await requireAdminWorkspaceDevAccess();
-  const prisma = getPrisma();
   const requestedConversationId = String(
     formData.get("conversationId") ?? "",
   ).trim();
-
-  const conversation = requestedConversationId
-    ? await prisma.conversation.findFirst({
-        where: {
-          id: requestedConversationId,
-          workspaceId: workspace.id,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-          platform: true,
-          subject: true,
-          assignedAgentId: true,
-          assignedAgent: {
-            select: {
-              id: true,
-              isActive: true,
-            },
-          },
-        },
-      })
-    : await prisma.conversation.findFirst({
-        where: {
-          workspaceId: workspace.id,
-          deletedAt: null,
-        },
-        orderBy: [{ lastMessageAt: "desc" }, { createdAt: "asc" }],
-        select: {
-          id: true,
-          platform: true,
-          subject: true,
-          assignedAgentId: true,
-          assignedAgent: {
-            select: {
-              id: true,
-              isActive: true,
-            },
-          },
-        },
-      });
+  const conversation = await resolveDevConversation({
+    workspaceId: workspace.id,
+    requestedConversationId,
+  });
 
   if (!conversation) {
     redirect(
@@ -273,44 +399,13 @@ export async function createTestApprovalRequestAction(formData: FormData) {
     );
   }
 
-  let agentAssignmentId =
-    conversation.assignedAgent?.isActive && conversation.assignedAgentId
-      ? conversation.assignedAgentId
-      : null;
-
-  if (!agentAssignmentId) {
-    const agentAssignment = await prisma.agentAssignment.create({
-      data: {
-        workspaceId: workspace.id,
-        conversationId: conversation.id,
-        goal: "Temporary dev-only approval queue testing",
-        instructions:
-          "TODO(remove-after-testing): temporary agent assignment used only for approval queue testing.",
-        tone: "Clear and concise",
-        allowedActionsJson: ["reply_draft"],
-        escalationRulesJson: {
-          temporary: true,
-          createdFor: "approval_queue_dev_testing",
-        } as never,
-        assignedByUserId: authContext.userId,
-        isActive: true,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    agentAssignmentId = agentAssignment.id;
-
-    await prisma.conversation.update({
-      where: {
-        id: conversation.id,
-      },
-      data: {
-        assignedAgentId: agentAssignment.id,
-      },
-    });
-  }
+  const agentAssignmentId = await ensureActiveDevAgentAssignment({
+    workspaceId: workspace.id,
+    conversationId: conversation.id,
+    assignedByUserId: authContext.userId,
+    assignedAgentId: conversation.assignedAgentId,
+    assignedAgentIsActive: Boolean(conversation.assignedAgent?.isActive),
+  });
 
   // TODO(remove-after-testing): temporary admin-only approval seed helper.
   const result = await createApprovalRequestForAgentDraft({
@@ -334,4 +429,90 @@ export async function createTestApprovalRequestAction(formData: FormData) {
   });
 
   redirect(`/approvals/${result.approvalRequestId}`);
+}
+
+export async function previewDraftGeneratorAction(formData: FormData) {
+  const { authContext, workspace } = await requireAdminWorkspaceDevAccess();
+  const requestedConversationId = String(
+    formData.get("conversationId") ?? "",
+  ).trim();
+
+  const conversation = await resolveDevConversation({
+    workspaceId: workspace.id,
+    requestedConversationId,
+  });
+
+  if (!conversation) {
+    redirect(
+      "/settings/workspace?integration=draft-preview&action=preview&status=error&message=No+eligible+conversation+was+found+for+draft+preview.",
+    );
+  }
+
+  await ensureActiveDevAgentAssignment({
+    workspaceId: workspace.id,
+    conversationId: conversation.id,
+    assignedByUserId: authContext.userId,
+    assignedAgentId: conversation.assignedAgentId,
+    assignedAgentIsActive: Boolean(conversation.assignedAgent?.isActive),
+    requireDraftReplyAction: true,
+  });
+
+  try {
+    const trigger = {
+      triggerType: AGENT_TRIGGER_TYPES.INBOUND_MESSAGE,
+      triggerReason:
+        "TODO(remove-after-testing): temporary draft generator preview in workspace settings.",
+    } as const;
+
+    const { context, plan } = await planAgentResponseForWorkspace({
+      conversationId: conversation.id,
+      trigger,
+    });
+
+    if (plan.actionType !== "draft_reply") {
+      redirect(
+        `/settings/workspace?integration=draft-preview&action=preview&status=error&message=${encodeURIComponent(
+          `Planner selected "${plan.actionType}" instead of "draft_reply". ${plan.rationaleSummary}`,
+        )}`,
+      );
+    }
+
+    const generation = await generateDraftFromPlanner({
+      context,
+      planner: plan,
+      trigger,
+    });
+
+    const previewParams = new URLSearchParams({
+      integration: "draft-preview",
+      action: "preview",
+      status: "completed",
+      conversationId: conversation.id,
+      plannerAction: plan.actionType,
+      plannerConfidence: plan.confidence.toFixed(2),
+      plannerRationale: plan.rationaleSummary,
+      generationConfidence: generation.confidenceScore.toFixed(2),
+      generationRationale: generation.rationaleSummary,
+      suggestedState: generation.suggestedWorkflowStateChange?.to ?? "",
+      extractedKeys:
+        generation.extractedStructuredData
+          .map((item) => item.key)
+          .join(", ") || "none",
+      proposedMessageText: generation.proposedMessageText.slice(0, 1600),
+    });
+
+    redirect(`/settings/workspace?${previewParams.toString()}`);
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+
+    const message =
+      error instanceof Error ? error.message : "Unable to generate draft preview.";
+    redirect(
+      `/settings/workspace?integration=draft-preview&action=preview&status=error&message=${encodeURIComponent(
+        message,
+      )}`,
+    );
+  }
 }

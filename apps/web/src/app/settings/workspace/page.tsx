@@ -10,6 +10,7 @@ import { getCurrentWorkspace } from "@/lib/workspace";
 import {
   createTestApprovalRequestAction,
   disconnectIntegrationAction,
+  previewDraftGeneratorAction,
   startGmailConnectAction,
   startSlackConnectAction,
   syncIntegrationAction,
@@ -79,6 +80,33 @@ export default async function WorkspaceSettingsPage({
   const syncDmConversationCount = readSearchParam(
     resolvedSearchParams?.dmConversationCount,
   );
+  const previewConversationId = readSearchParam(
+    resolvedSearchParams?.conversationId,
+  );
+  const previewPlannerAction = readSearchParam(
+    resolvedSearchParams?.plannerAction,
+  );
+  const previewPlannerConfidence = readSearchParam(
+    resolvedSearchParams?.plannerConfidence,
+  );
+  const previewPlannerRationale = readSearchParam(
+    resolvedSearchParams?.plannerRationale,
+  );
+  const previewGenerationConfidence = readSearchParam(
+    resolvedSearchParams?.generationConfidence,
+  );
+  const previewGenerationRationale = readSearchParam(
+    resolvedSearchParams?.generationRationale,
+  );
+  const previewSuggestedState = readSearchParam(
+    resolvedSearchParams?.suggestedState,
+  );
+  const previewExtractedKeys = readSearchParam(
+    resolvedSearchParams?.extractedKeys,
+  );
+  const previewMessageText = readSearchParam(
+    resolvedSearchParams?.proposedMessageText,
+  );
 
   function formatDateTime(value: Date | null) {
     if (!value) {
@@ -132,6 +160,18 @@ export default async function WorkspaceSettingsPage({
 
     if (
       integrationStatus === "completed" &&
+      integrationAction === "preview" &&
+      integrationName === "draft-preview"
+    ) {
+      return (
+        <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+          Temporary draft preview generated successfully.
+        </section>
+      );
+    }
+
+    if (
+      integrationStatus === "completed" &&
       integrationAction === "disconnect" &&
       integrationName
     ) {
@@ -158,7 +198,8 @@ export default async function WorkspaceSettingsPage({
       integrationMessage &&
       (integrationName === "gmail" ||
         integrationName === "slack" ||
-        integrationName === "approval-test")
+        integrationName === "approval-test" ||
+        integrationName === "draft-preview")
     ) {
       return (
         <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
@@ -166,6 +207,8 @@ export default async function WorkspaceSettingsPage({
             ? `${integrationName === "gmail" ? "Gmail" : "Slack"} sync failed`
             : integrationName === "approval-test"
               ? "Test approval request creation failed"
+              : integrationName === "draft-preview"
+                ? "Draft preview generation failed"
               : `${integrationName === "gmail" ? "Gmail" : "Slack"} connect failed`}
           : {integrationMessage}
         </section>
@@ -267,7 +310,7 @@ export default async function WorkspaceSettingsPage({
             </article>
           </section>
         ) : (
-          <section className="mt-8 rounded-[24px] border border-amber-200 bg-amber-50 p-6 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+        <section className="mt-8 rounded-[24px] border border-amber-200 bg-amber-50 p-6 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-700">
               Workspace Unavailable
             </p>
@@ -334,6 +377,104 @@ export default async function WorkspaceSettingsPage({
                 Create test approval request
               </button>
             </form>
+
+            <div className="mt-6 border-t border-amber-200 pt-6">
+              <h3 className="text-lg font-semibold text-amber-950">
+                Temporary draft preview helper
+              </h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-amber-900">
+                TODO(remove-after-testing): run planner + OpenAI draft generation for
+                the selected conversation and show a no-save preview result.
+              </p>
+              <form action={previewDraftGeneratorAction} className="mt-4 space-y-4">
+                <label className="flex flex-col gap-2 text-sm text-amber-950">
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
+                    Conversation
+                  </span>
+                  <select
+                    name="conversationId"
+                    className="rounded-2xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-900"
+                    defaultValue=""
+                  >
+                    <option value="">
+                      Auto-pick most recent conversation
+                    </option>
+                    {devApprovalConversations.map((conversation) => {
+                      const fallbackLabel =
+                        conversation.participants
+                          .map(
+                            (participant) =>
+                              participant.displayName ||
+                              participant.email ||
+                              participant.handle,
+                          )
+                          .filter(Boolean)
+                          .join(", ") || "Untitled conversation";
+
+                      return (
+                        <option key={conversation.id} value={conversation.id}>
+                          {conversation.platform === "EMAIL" ? "Gmail" : "Slack"} ·{" "}
+                          {conversation.subject?.trim() || fallbackLabel}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+
+                <button
+                  type="submit"
+                  className="inline-flex rounded-full border border-cyan-300 bg-white px-4 py-2 text-sm font-medium text-cyan-950 transition hover:border-cyan-400 hover:bg-cyan-50"
+                >
+                  Preview AI draft (no save)
+                </button>
+              </form>
+            </div>
+
+            {integrationName === "draft-preview" && integrationAction === "preview" ? (
+              <div className="mt-6 rounded-[24px] border border-cyan-200 bg-white p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">
+                  Draft Preview Result
+                </p>
+                <div className="mt-3 grid gap-2 text-sm text-slate-800">
+                  <p>
+                    <span className="font-semibold text-slate-950">Conversation:</span>{" "}
+                    {previewConversationId ?? "Unavailable"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-950">Planner action:</span>{" "}
+                    {previewPlannerAction ?? "Unavailable"} ({previewPlannerConfidence ?? "n/a"})
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-950">Generation confidence:</span>{" "}
+                    {previewGenerationConfidence ?? "n/a"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-950">Suggested state:</span>{" "}
+                    {previewSuggestedState || "none"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-950">Extracted keys:</span>{" "}
+                    {previewExtractedKeys ?? "none"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-950">Planner rationale:</span>{" "}
+                    {previewPlannerRationale ?? "Unavailable"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-950">Generation rationale:</span>{" "}
+                    {previewGenerationRationale ?? "Unavailable"}
+                  </p>
+                </div>
+                <div className="mt-4 rounded-[18px] border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Proposed Message Text
+                  </p>
+                  <pre className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-900">
+                    {previewMessageText ?? "No proposed text available."}
+                  </pre>
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
 

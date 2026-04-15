@@ -1,5 +1,11 @@
 export { getPrisma } from "./client";
 export {
+  DRAFT_GENERATION_PROVIDERS,
+  assertDraftGenerationAllowed,
+  clampDraftConfidenceScore,
+  sanitizeSuggestedWorkflowStateChange,
+} from "./draft-generator";
+export {
   AGENT_ASSIGNMENT_ACTION_TYPES,
   assignAgentToConversation,
 } from "./agent-assignments";
@@ -41,6 +47,13 @@ export {
   rotateSecret,
   updateSecret,
 } from "./connector-secret-store";
+export type {
+  DraftGenerationConfig,
+  DraftGenerationProvider,
+  DraftGenerationResult,
+  DraftGenerationStructuredDatum,
+  DraftGeneratorInput,
+} from "./draft-generator";
 export type {
   AgentAssignmentActionType,
   AssignAgentToConversationInput,
