@@ -351,9 +351,15 @@ export async function syncWorkspaceSlackIntegration(input: {
     );
     const now = new Date();
     const receivedEvents = results.flatMap((result) =>
-      result.messageIds
-        .slice(0, result.insertedCounts.messages)
-        .map((messageId, index) =>
+      (result.insertedMessageIndexes ?? []).flatMap((messageIndex) => {
+        const messageId = result.messageIds[messageIndex];
+        const message = result.batch?.messages[messageIndex];
+
+        if (!messageId || !message) {
+          return [];
+        }
+
+        return [
           buildEnvoyEvent({
             eventType: ENVOY_EVENT_TYPES.MESSAGE_RECEIVED,
             workspaceId: input.workspaceId,
@@ -365,17 +371,17 @@ export async function syncWorkspaceSlackIntegration(input: {
               messageId,
               integrationId: input.integrationId,
               platform: "SLACK",
-              externalMessageId:
-                result.batch?.messages[index]?.externalMessageId ?? null,
-              senderType: result.batch?.messages[index]?.senderType ?? null,
-              direction: result.batch?.messages[index]?.direction ?? null,
-              status: result.batch?.messages[index]?.status ?? "RECEIVED",
+              externalMessageId: message.externalMessageId ?? null,
+              senderType: message.senderType ?? null,
+              direction: message.direction ?? null,
+              status: message.status ?? "RECEIVED",
               metadata: {
                 provider: "slack",
               },
             },
           }),
-        ),
+        ];
+      }),
     );
 
     await prisma.integration.update({

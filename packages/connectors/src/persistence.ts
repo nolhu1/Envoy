@@ -39,6 +39,7 @@ export type ConversationParticipantsWriteResult = {
 
 export type MessageAttachmentWriteResult = {
   messageIds: string[];
+  insertedMessageIndexes?: number[];
   attachmentIds: string[];
   insertedCounts: Pick<InboundInsertedCounts, "messages" | "attachments">;
   matchedCounts?: Pick<CanonicalWriteMatchedCounts, "messages" | "attachments">;
@@ -49,6 +50,7 @@ export type CanonicalWriteResult = {
   conversationId?: string | null;
   participantResolutionMap: ParticipantResolutionMap;
   messageIds: string[];
+  insertedMessageIndexes?: number[];
   attachmentIds: string[];
   insertedCounts: InboundInsertedCounts;
   matchedCounts?: CanonicalWriteMatchedCounts;
@@ -98,6 +100,7 @@ export function buildCanonicalWriteResult(input: {
     participantResolutionMap:
       input.conversationParticipantsResult.participantResolutionMap,
     messageIds: input.messageAttachmentResult.messageIds,
+    insertedMessageIndexes: input.messageAttachmentResult.insertedMessageIndexes,
     attachmentIds: input.messageAttachmentResult.attachmentIds,
     insertedCounts: {
       conversations: input.conversationParticipantsResult.insertedCounts.conversations,
@@ -135,6 +138,7 @@ export function createNoOpCanonicalPersistenceWriter<
     async upsertMessagesAndAttachments() {
       return {
         messageIds: [],
+        insertedMessageIndexes: [],
         attachmentIds: [],
         insertedCounts: {
           messages: 0,

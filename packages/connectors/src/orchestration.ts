@@ -174,6 +174,7 @@ function buildInboundDuplicateResult(
     workspaceId: envelope.workspaceId,
     conversationId: null,
     messageIds,
+    insertedMessageIndexes: [],
     insertedCounts: EMPTY_INSERTED_COUNTS,
     dedupeDecision: {
       status: DEDUPE_STATUSES.ALREADY_PROCESSED,
@@ -251,6 +252,7 @@ export async function runInboundOrchestration<
         workspaceId: effectiveEnvelope.workspaceId,
         conversationId: null,
         messageIds: dedupeDecision.existingMessageIds ?? [],
+        insertedMessageIndexes: [],
         insertedCounts: EMPTY_INSERTED_COUNTS,
         dedupeDecision,
         emittedEvents: [],
@@ -306,6 +308,7 @@ export async function runInboundOrchestration<
       workspaceId: effectiveEnvelope.workspaceId,
       conversationId: writeResult.conversationId ?? null,
       messageIds: writeResult.messageIds,
+      insertedMessageIndexes: writeResult.insertedMessageIndexes ?? [],
       insertedCounts: writeResult.insertedCounts,
       dedupeDecision,
       emittedEvents,

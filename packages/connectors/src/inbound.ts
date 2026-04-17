@@ -82,6 +82,7 @@ export type InboundIngestionResult = {
   workspaceId: string;
   conversationId?: string | null;
   messageIds: string[];
+  insertedMessageIndexes?: number[];
   insertedCounts: InboundInsertedCounts;
   dedupeDecision: DedupeDecision;
   emittedEvents: InboundEmittedEvent[];

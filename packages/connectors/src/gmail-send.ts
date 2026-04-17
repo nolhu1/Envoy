@@ -46,6 +46,25 @@ function isJsonObject(value: JsonValue | null | undefined): value is JsonObject 
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function readMetadataString(
+  metadata: JsonObject | null,
+  key: string,
+) {
+  const value = metadata?.[key];
+
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function looksLikeRfcMessageId(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  return value.startsWith("<") || value.includes("@");
+}
+
 function toBase64Url(value: string) {
   return Buffer.from(value, "utf8").toString("base64url");
 }
@@ -63,17 +82,25 @@ function escapeMimeHeaderValue(value: string) {
 function extractReplyMetadata(
   input: OutboundSendInput,
 ) {
-  const metadata = isJsonObject(input.conversation.platformMetadataJson)
+  const messageMetadata = isJsonObject(input.message.platformMetadataJson)
+    ? input.message.platformMetadataJson
+    : null;
+  const conversationMetadata = isJsonObject(input.conversation.platformMetadataJson)
     ? input.conversation.platformMetadataJson
     : null;
+  const fallbackReplyId =
+    typeof input.replyToExternalMessageId === "string" &&
+    looksLikeRfcMessageId(input.replyToExternalMessageId.trim())
+      ? input.replyToExternalMessageId.trim()
+      : null;
   const inReplyTo =
-    typeof metadata?.gmailInReplyTo === "string"
-      ? metadata.gmailInReplyTo
-      : input.replyToExternalMessageId ?? null;
+    readMetadataString(messageMetadata, "gmailInReplyTo") ??
+    readMetadataString(conversationMetadata, "gmailInReplyTo") ??
+    fallbackReplyId;
   const references =
-    typeof metadata?.gmailReferences === "string"
-      ? metadata.gmailReferences
-      : inReplyTo;
+    readMetadataString(messageMetadata, "gmailReferences") ??
+    readMetadataString(conversationMetadata, "gmailReferences") ??
+    inReplyTo;
 
   return {
     inReplyTo,

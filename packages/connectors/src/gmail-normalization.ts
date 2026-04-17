@@ -38,6 +38,12 @@ function getHeaderValue(headers: GmailMessageHeader[], name: string) {
   return header?.value ?? null;
 }
 
+function normalizeHeaderValue(value: string | null) {
+  const normalized = value?.trim();
+
+  return normalized ? normalized : null;
+}
+
 function parseEpochMillis(value?: string | null) {
   if (!value) {
     return null;
@@ -257,6 +263,15 @@ export function normalizeGmailMessageCandidate(
   const bodyContent = extractBodyContent(message);
   const headers = getHeaders(message.payload);
   const fromAddress = parseAddressList(getHeaderValue(headers, "From"))[0];
+  const messageHeaderId = normalizeHeaderValue(
+    getHeaderValue(headers, "Message-ID"),
+  );
+  const inReplyToHeader = normalizeHeaderValue(
+    getHeaderValue(headers, "In-Reply-To"),
+  );
+  const referencesHeader = normalizeHeaderValue(
+    getHeaderValue(headers, "References"),
+  );
 
   return {
     externalMessageId: message.id,
@@ -278,6 +293,9 @@ export function normalizeGmailMessageCandidate(
       historyId: message.historyId ?? null,
       labelIds: message.labelIds ?? [],
       snippet: message.snippet ?? null,
+      gmailMessageHeaderId: messageHeaderId,
+      gmailInReplyToHeader: inReplyToHeader,
+      gmailReferencesHeader: referencesHeader,
       payloadPlaceholder: {
         threadId: message.threadId,
         messageId: message.id,

@@ -320,6 +320,7 @@ async function upsertMessagesAndAttachments(
 ): Promise<MessageAttachmentWriteResult> {
   const prisma = getPrisma();
   const messageIds: string[] = [];
+  const insertedMessageIndexes: number[] = [];
   const attachmentIds: string[] = [];
   let insertedMessages = 0;
   let matchedMessages = 0;
@@ -327,7 +328,7 @@ async function upsertMessagesAndAttachments(
   let matchedAttachments = 0;
   const persistedMessageIdsByExternalId = new Map<string, string>();
 
-  for (const messageCandidate of input.batch.messages) {
+  for (const [messageIndex, messageCandidate] of input.batch.messages.entries()) {
     const senderParticipantId = resolveSenderParticipantId({
       senderExternalParticipantId: messageCandidate.senderExternalParticipantId,
       participantResolutionMap: input.conversationParticipantsResult.participantResolutionMap,
@@ -382,6 +383,7 @@ async function upsertMessagesAndAttachments(
       matchedMessages += 1;
     } else {
       insertedMessages += 1;
+      insertedMessageIndexes.push(messageIndex);
     }
 
     messageIds.push(message.id);
@@ -419,6 +421,7 @@ async function upsertMessagesAndAttachments(
 
   return {
     messageIds,
+    insertedMessageIndexes,
     attachmentIds,
     insertedCounts: {
       messages: insertedMessages,

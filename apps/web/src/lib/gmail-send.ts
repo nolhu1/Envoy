@@ -85,6 +85,12 @@ type SendableMessageRecord = {
       isInternal: boolean;
       platformMetadataJson: unknown;
     }>;
+    messages: Array<{
+      id: string;
+      externalMessageId: string | null;
+      platformMetadataJson: unknown;
+      rawPayloadJson: unknown;
+    }>;
   };
   approvalRequests: Array<{
     id: string;
@@ -99,6 +105,93 @@ const gmailConnector = new GmailConnector();
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeJson(
+  current: unknown,
+  next: Record<string, unknown> | null,
+) {
+  if (!next) {
+    return current ?? null;
+  }
+
+  if (isJsonObject(current)) {
+    return {
+      ...current,
+      ...next,
+    };
+  }
+
+  return next;
+}
+
+function readNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function getRawGmailHeaderValue(
+  rawPayloadJson: unknown,
+  headerName: string,
+) {
+  const rawMessage = isJsonObject(rawPayloadJson) ? rawPayloadJson : null;
+  const payload = isJsonObject(rawMessage?.payload) ? rawMessage.payload : null;
+  const headers = Array.isArray(payload?.headers) ? payload.headers : [];
+
+  for (const header of headers) {
+    if (!isJsonObject(header)) {
+      continue;
+    }
+
+    if (
+      typeof header.name === "string" &&
+      header.name.toLowerCase() === headerName.toLowerCase() &&
+      typeof header.value === "string"
+    ) {
+      return header.value.trim() || null;
+    }
+  }
+
+  return null;
+}
+
+function extractMessageIdTokens(value: string | null) {
+  if (!value) {
+    return [];
+  }
+
+  const matches = value.match(/<[^>]+>/g);
+
+  if (matches && matches.length > 0) {
+    return matches.map((match) => match.trim());
+  }
+
+  return [value];
+}
+
+function buildGmailReferencesHeader(input: {
+  messageHeaderId: string | null;
+  inReplyToHeader: string | null;
+  referencesHeader: string | null;
+}) {
+  const tokens = new Map<string, string>();
+
+  for (const token of extractMessageIdTokens(input.referencesHeader)) {
+    tokens.set(token, token);
+  }
+
+  if (tokens.size === 0) {
+    for (const token of extractMessageIdTokens(input.inReplyToHeader)) {
+      tokens.set(token, token);
+    }
+  }
+
+  for (const token of extractMessageIdTokens(input.messageHeaderId)) {
+    tokens.set(token, token);
+  }
+
+  return tokens.size > 0 ? [...tokens.values()].join(" ") : null;
 }
 
 function isOauthAuthMaterial(
@@ -216,6 +309,23 @@ async function getSendableMessage(input: {
               platformMetadataJson: true,
             },
           },
+          messages: {
+            where: {
+              deletedAt: null,
+            },
+            orderBy: [
+              { sentAt: "desc" },
+              { receivedAt: "desc" },
+              { createdAt: "desc" },
+            ],
+            take: 20,
+            select: {
+              id: true,
+              externalMessageId: true,
+              platformMetadataJson: true,
+              rawPayloadJson: true,
+            },
+          },
         },
       },
       approvalRequests: {
@@ -266,6 +376,11 @@ function toOutboundSendInput(input: {
   connectorContext: ConnectorContext;
   message: SendableMessageRecord;
 }): OutboundSendInput {
+  const gmailReplyMetadata =
+    input.message.conversation.platform === "EMAIL"
+      ? resolveGmailReplyThreadingMetadata(input.message)
+      : null;
+
   return {
     context: input.connectorContext,
     conversation: {
@@ -279,7 +394,15 @@ function toOutboundSendInput(input: {
       bodyHtml: input.message.bodyHtml,
       direction: input.message.direction,
       senderType: input.message.senderType,
-      platformMetadataJson: input.message.platformMetadataJson as never,
+      platformMetadataJson: mergeJson(
+        input.message.platformMetadataJson,
+        gmailReplyMetadata
+          ? {
+              gmailInReplyTo: gmailReplyMetadata.gmailInReplyTo,
+              gmailReferences: gmailReplyMetadata.gmailReferences,
+            }
+          : null,
+      ) as never,
     },
     participants: input.message.conversation.participants.map((participant) => ({
       externalParticipantId: participant.externalParticipantId,
@@ -305,6 +428,46 @@ function toApprovalContext(message: SendableMessageRecord) {
     approvalStatus: latestApproval.status,
     approvedAt: latestApproval.reviewedAt,
   };
+}
+
+function resolveGmailReplyThreadingMetadata(
+  message: SendableMessageRecord,
+) {
+  for (const candidate of message.conversation.messages) {
+    if (candidate.id === message.id) {
+      continue;
+    }
+
+    const metadata = isJsonObject(candidate.platformMetadataJson)
+      ? candidate.platformMetadataJson
+      : null;
+    const messageHeaderId =
+      readNonEmptyString(metadata?.gmailMessageHeaderId) ??
+      getRawGmailHeaderValue(candidate.rawPayloadJson, "Message-ID");
+
+    if (!messageHeaderId) {
+      continue;
+    }
+
+    const inReplyToHeader =
+      readNonEmptyString(metadata?.gmailInReplyToHeader) ??
+      getRawGmailHeaderValue(candidate.rawPayloadJson, "In-Reply-To");
+    const referencesHeader =
+      readNonEmptyString(metadata?.gmailReferencesHeader) ??
+      getRawGmailHeaderValue(candidate.rawPayloadJson, "References");
+
+    return {
+      replyToExternalMessageId: candidate.externalMessageId ?? null,
+      gmailInReplyTo: messageHeaderId,
+      gmailReferences: buildGmailReferencesHeader({
+        messageHeaderId,
+        inReplyToHeader,
+        referencesHeader,
+      }),
+    };
+  }
+
+  return null;
 }
 
 async function createSendRequestedAuditLog(input: {
@@ -373,6 +536,7 @@ export async function sendWorkspaceGmailReply(input: {
     message,
   });
   const approvalContext = toApprovalContext(message);
+  const gmailReplyMetadata = resolveGmailReplyThreadingMetadata(message);
   const envelope: OutboundSendEnvelope = {
     workspaceId: input.workspaceId,
     integrationId: message.conversation.integration.id,
@@ -382,7 +546,8 @@ export async function sendWorkspaceGmailReply(input: {
     conversation: outboundInput.conversation,
     message: outboundInput.message,
     participants: outboundInput.participants,
-    replyToExternalMessageId: null,
+    replyToExternalMessageId:
+      gmailReplyMetadata?.replyToExternalMessageId ?? null,
     actorContext: {
       actorType: "USER",
       actorId: input.actorUserId,
@@ -415,6 +580,8 @@ export async function sendWorkspaceGmailReply(input: {
       const sendResult = await gmailConnector.sendMessage({
         ...outboundInput,
         context,
+        replyToExternalMessageId:
+          sendEnvelope.replyToExternalMessageId ?? null,
       });
 
       return {
