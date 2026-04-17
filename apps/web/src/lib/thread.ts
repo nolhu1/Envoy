@@ -1,8 +1,13 @@
 import "server-only";
 
 import { getPrisma } from "@envoy/db";
+import type { AgentTriggerType } from "@envoy/db";
 
 import { requireAppAuthContext } from "@/lib/app-auth";
+import {
+  getEnabledAgentTriggerTypes,
+  hasConfiguredAgentTriggerRules,
+} from "@/lib/agent-trigger-rules";
 import {
   buildConversationTitle,
   formatParticipantSummary,
@@ -40,6 +45,9 @@ type ThreadConversationRecord = {
   assignedAgent: {
     id: string;
     goal: string;
+    instructions: string | null;
+    tone: string | null;
+    escalationRulesJson: unknown;
     isActive: boolean;
   } | null;
   messages: Array<{
@@ -101,6 +109,9 @@ export type ConversationThread = {
   conversationState: ThreadConversationRecord["state"];
   lastActivityAt: Date;
   assignedAgentLabel: string | null;
+  assignedAgent: ThreadConversationRecord["assignedAgent"] | null;
+  enabledTriggerTypes: AgentTriggerType[];
+  hasConfiguredTriggerRules: boolean;
   participants: ThreadConversationRecord["participants"];
   messages: ThreadMessageRow[];
 };
@@ -202,6 +213,15 @@ function toThreadMessageRow(
 }
 
 function toConversationThread(record: ThreadConversationRecord): ConversationThread {
+  const enabledTriggerTypes =
+    record.assignedAgent && record.assignedAgent.isActive
+      ? getEnabledAgentTriggerTypes(record.assignedAgent.escalationRulesJson)
+      : [];
+  const hasConfiguredTriggerRules =
+    record.assignedAgent && record.assignedAgent.isActive
+      ? hasConfiguredAgentTriggerRules(record.assignedAgent.escalationRulesJson)
+      : false;
+
   return {
     conversationId: record.id,
     platform: record.platform,
@@ -211,6 +231,9 @@ function toConversationThread(record: ThreadConversationRecord): ConversationThr
     conversationState: record.state,
     lastActivityAt: buildLastActivityAt(record),
     assignedAgentLabel: buildAssignedAgentLabel(record),
+    assignedAgent: record.assignedAgent?.isActive ? record.assignedAgent : null,
+    enabledTriggerTypes,
+    hasConfiguredTriggerRules,
     participants: record.participants,
     messages: record.messages.map(toThreadMessageRow),
   };
@@ -252,6 +275,9 @@ export async function getCurrentWorkspaceConversationThread(
         select: {
           id: true,
           goal: true,
+          instructions: true,
+          tone: true,
+          escalationRulesJson: true,
           isActive: true,
         },
       },

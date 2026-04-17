@@ -16,6 +16,13 @@ import {
 } from "@envoy/db";
 
 import { generateDraftFromPlanner } from "@/lib/draft-generator";
+import {
+  AGENT_RUN_ACTION_TYPES,
+  buildAgentPromptInputSummary,
+  buildSafeGenerationSummary,
+  logAgentRunEvent,
+  toSafeErrorSummary,
+} from "@/lib/agent-run-logging";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 
 export type GeneratedDraftApprovalFlowResult = {
@@ -38,6 +45,7 @@ export type EscalatedDraftApprovalFlowResult = {
 
 export async function createApprovalFromGeneratedDraftResult(input: {
   workspaceId: string;
+  runId?: string | null;
   context: AgentConversationContext;
   planner: AgentResponsePlan;
   trigger: AgentTriggerContext;
@@ -91,114 +99,382 @@ export async function createApprovalFromGeneratedDraftResult(input: {
         suggestedWorkflowStateChange:
           input.generation.suggestedWorkflowStateChange ?? null,
       },
+      run: {
+        runId: input.runId ?? null,
+      },
     },
   });
 }
 
 export async function generateDraftAndCreateApprovalForWorkspace(input: {
+  workspaceId?: string;
+  actorUserId?: string | null;
+  skipPermissionCheck?: boolean;
   conversationId: string;
   trigger: AgentTriggerContext;
   generationConfig?: DraftGenerationConfig | null;
   messageLimit?: number;
   factLimit?: number;
 }): Promise<GeneratedDraftApprovalFlowResult | EscalatedDraftApprovalFlowResult> {
-  const authContext = await requirePermission(PERMISSIONS.ASSIGN_AGENTS);
+  const shouldSkipPermissionCheck = Boolean(input.skipPermissionCheck);
+  const authContext = shouldSkipPermissionCheck
+    ? null
+    : await requirePermission(PERMISSIONS.ASSIGN_AGENTS);
+  const workspaceId = shouldSkipPermissionCheck
+    ? input.workspaceId
+    : (input.workspaceId ?? authContext?.workspaceId);
+  const actorUserId = shouldSkipPermissionCheck
+    ? (input.actorUserId ?? null)
+    : (input.actorUserId ?? authContext?.userId ?? null);
 
-  const context = await buildAgentConversationContext({
-    workspaceId: authContext.workspaceId,
+  if (!workspaceId) {
+    throw new Error("Agent draft flow requires a workspace id.");
+  }
+
+  if (!shouldSkipPermissionCheck) {
+    if (workspaceId !== authContext?.workspaceId) {
+      throw new Error("Agent draft flow workspace does not match the current auth context.");
+    }
+
+    if (!actorUserId || actorUserId !== authContext?.userId) {
+      throw new Error("Agent draft flow actor does not match the current auth context.");
+    }
+  }
+
+  const runId = crypto.randomUUID();
+  let currentStage = "run_requested";
+
+  await logAgentRunEvent({
+    workspaceId,
     conversationId: input.conversationId,
-    messageLimit: input.messageLimit,
-    factLimit: input.factLimit,
+    runId,
+    actionType: AGENT_RUN_ACTION_TYPES.RUN_REQUESTED,
+    actor: {
+      actorUserId: actorUserId ?? undefined,
+    },
+    metadata: {
+      status: "started",
+      triggerType: input.trigger.triggerType,
+      triggerReason: input.trigger.triggerReason ?? null,
+      sourceMessageId: input.trigger.sourceMessageId ?? null,
+      sourceApprovalRequestId: input.trigger.sourceApprovalRequestId ?? null,
+    },
   });
 
-  const planner = planAgentResponse({
-    context,
-    trigger: input.trigger,
-  });
+  try {
+    currentStage = "context_built";
+    const context = await buildAgentConversationContext({
+      workspaceId,
+      conversationId: input.conversationId,
+      messageLimit: input.messageLimit,
+      factLimit: input.factLimit,
+    });
 
-  const preGenerationEscalation = evaluateAgentEscalation({
-    context,
-    planner,
-    trigger: input.trigger,
-    generation: null,
-  });
-
-  if (preGenerationEscalation.shouldEscalate) {
-    await persistAgentEscalationDecision({
-      workspaceId: authContext.workspaceId,
+    await logAgentRunEvent({
+      workspaceId,
       conversationId: context.conversationId,
-      actorAgentAssignmentId: context.assignment?.id ?? null,
+      runId,
+      actionType: AGENT_RUN_ACTION_TYPES.CONTEXT_BUILT,
+      actor: {
+        actorUserId: actorUserId ?? undefined,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+      },
+      metadata: {
+        platform: context.platform,
+        state: context.state,
+        hasActiveAssignment: Boolean(context.assignment?.isActive),
+        assignmentGoal: context.assignment?.goal ?? null,
+        participantCount: context.participants.length,
+        recentMessageCount: context.recentMessages.length,
+        factCount: context.facts.length,
+        recentApprovalStatus: context.recentApprovalOutcome?.status ?? null,
+      },
+    });
+
+    currentStage = "planner_decided";
+    const planner = planAgentResponse({
+      context,
       trigger: input.trigger,
+    });
+
+    await logAgentRunEvent({
+      workspaceId,
+      conversationId: context.conversationId,
+      runId,
+      actionType: AGENT_RUN_ACTION_TYPES.PLAN_DECIDED,
+      actor: {
+        actorUserId: actorUserId ?? undefined,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+      },
+      metadata: {
+        actionType: planner.actionType,
+        rationaleSummary: planner.rationaleSummary,
+        confidence: planner.confidence,
+        suggestedWorkflowStateChange:
+          planner.suggestedWorkflowStateChange ?? null,
+        missingInformationQuestions: planner.missingInformationQuestions ?? null,
+        escalationReason: planner.escalationReason ?? null,
+      },
+    });
+
+    const preGenerationEscalation = evaluateAgentEscalation({
+      context,
       planner,
+      trigger: input.trigger,
       generation: null,
-      escalation: preGenerationEscalation,
+    });
+
+    if (preGenerationEscalation.shouldEscalate) {
+      currentStage = "pre_generation_escalated";
+      await logAgentRunEvent({
+        workspaceId,
+        conversationId: context.conversationId,
+        runId,
+        actionType: AGENT_RUN_ACTION_TYPES.ESCALATION_DECIDED,
+        actor: {
+          actorUserId: actorUserId ?? undefined,
+          actorAgentAssignmentId: context.assignment?.id ?? null,
+        },
+        metadata: {
+          escalation: preGenerationEscalation,
+          stage: "pre_generation",
+        },
+      });
+
+      await persistAgentEscalationDecision({
+        workspaceId,
+        conversationId: context.conversationId,
+        runId,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+        actorUserId,
+        trigger: input.trigger,
+        planner,
+        generation: null,
+        escalation: preGenerationEscalation,
+      });
+
+      await logAgentRunEvent({
+        workspaceId,
+        conversationId: context.conversationId,
+        runId,
+        actionType: AGENT_RUN_ACTION_TYPES.RUN_COMPLETED,
+        actor: {
+          actorUserId: actorUserId ?? undefined,
+          actorAgentAssignmentId: context.assignment?.id ?? null,
+        },
+        metadata: {
+          status: "escalated",
+          stage: "pre_generation",
+          escalationReasonCode: preGenerationEscalation.escalationReasonCode,
+        },
+      });
+
+      return {
+        status: "escalated",
+        context,
+        planner,
+        escalation: preGenerationEscalation,
+        generation: null,
+        approval: null,
+      };
+    }
+
+    if (planner.actionType !== AGENT_PLANNER_ACTION_TYPES.DRAFT_REPLY) {
+      throw new Error(
+        `Planner selected "${planner.actionType}" instead of "${AGENT_PLANNER_ACTION_TYPES.DRAFT_REPLY}". ${planner.rationaleSummary}`,
+      );
+    }
+
+    currentStage = "generation_attempted";
+    await logAgentRunEvent({
+      workspaceId,
+      conversationId: context.conversationId,
+      runId,
+      actionType: AGENT_RUN_ACTION_TYPES.GENERATION_ATTEMPTED,
+      actor: {
+        actorUserId: actorUserId ?? undefined,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+      },
+      metadata: {
+        promptInputSummary: buildAgentPromptInputSummary({
+          trigger: input.trigger,
+          context,
+          planner,
+        }),
+      },
+    });
+
+    const generation = await generateDraftFromPlanner({
+      context,
+      planner,
+      trigger: input.trigger,
+      config: input.generationConfig ?? null,
+    });
+
+    currentStage = "generation_succeeded";
+    await logAgentRunEvent({
+      workspaceId,
+      conversationId: context.conversationId,
+      runId,
+      actionType: AGENT_RUN_ACTION_TYPES.GENERATION_SUCCEEDED,
+      actor: {
+        actorUserId: actorUserId ?? undefined,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+      },
+      metadata: buildSafeGenerationSummary(generation),
+    });
+
+    const postGenerationEscalation = evaluateAgentEscalation({
+      context,
+      planner,
+      trigger: input.trigger,
+      generation,
+    });
+
+    if (postGenerationEscalation.shouldEscalate) {
+      currentStage = "post_generation_escalated";
+      await logAgentRunEvent({
+        workspaceId,
+        conversationId: context.conversationId,
+        runId,
+        actionType: AGENT_RUN_ACTION_TYPES.ESCALATION_DECIDED,
+        actor: {
+          actorUserId: actorUserId ?? undefined,
+          actorAgentAssignmentId: context.assignment?.id ?? null,
+        },
+        metadata: {
+          escalation: postGenerationEscalation,
+          stage: "post_generation",
+        },
+      });
+
+      await persistAgentEscalationDecision({
+        workspaceId,
+        conversationId: context.conversationId,
+        runId,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+        actorUserId,
+        trigger: input.trigger,
+        planner,
+        generation,
+        escalation: postGenerationEscalation,
+      });
+
+      await logAgentRunEvent({
+        workspaceId,
+        conversationId: context.conversationId,
+        runId,
+        actionType: AGENT_RUN_ACTION_TYPES.RUN_COMPLETED,
+        actor: {
+          actorUserId: actorUserId ?? undefined,
+          actorAgentAssignmentId: context.assignment?.id ?? null,
+        },
+        metadata: {
+          status: "escalated",
+          stage: "post_generation",
+          escalationReasonCode: postGenerationEscalation.escalationReasonCode,
+        },
+      });
+
+      return {
+        status: "escalated",
+        context,
+        planner,
+        escalation: postGenerationEscalation,
+        generation,
+        approval: null,
+      };
+    }
+
+    currentStage = "draft_and_approval_created";
+    const approval = await createApprovalFromGeneratedDraftResult({
+      workspaceId,
+      runId,
+      context,
+      planner,
+      trigger: input.trigger,
+      generation,
+    });
+
+    await logAgentRunEvent({
+      workspaceId,
+      conversationId: context.conversationId,
+      runId,
+      actionType: AGENT_RUN_ACTION_TYPES.DRAFT_CREATED,
+      actor: {
+        actorUserId: actorUserId ?? undefined,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+      },
+      messageId: approval.draftMessageId,
+      approvalRequestId: approval.approvalRequestId,
+      metadata: {
+        messageId: approval.draftMessageId,
+        approvalRequestId: approval.approvalRequestId,
+        plannerAction: planner.actionType,
+        confidence: generation.confidenceScore,
+      },
+    });
+
+    await logAgentRunEvent({
+      workspaceId,
+      conversationId: context.conversationId,
+      runId,
+      actionType: AGENT_RUN_ACTION_TYPES.APPROVAL_REQUESTED,
+      actor: {
+        actorUserId: actorUserId ?? undefined,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+      },
+      messageId: approval.draftMessageId,
+      approvalRequestId: approval.approvalRequestId,
+      metadata: {
+        approvalRequestId: approval.approvalRequestId,
+        messageId: approval.draftMessageId,
+        approvalStatus: approval.approvalStatus,
+      },
+    });
+
+    await logAgentRunEvent({
+      workspaceId,
+      conversationId: context.conversationId,
+      runId,
+      actionType: AGENT_RUN_ACTION_TYPES.RUN_COMPLETED,
+      actor: {
+        actorUserId: actorUserId ?? undefined,
+        actorAgentAssignmentId: context.assignment?.id ?? null,
+      },
+      messageId: approval.draftMessageId,
+      approvalRequestId: approval.approvalRequestId,
+      metadata: {
+        status: "draft_created",
+        plannerAction: planner.actionType,
+        confidence: generation.confidenceScore,
+      },
     });
 
     return {
-      status: "escalated",
+      status: "draft_created",
       context,
       planner,
-      escalation: preGenerationEscalation,
-      generation: null,
-      approval: null,
-    };
-  }
-
-  if (planner.actionType !== AGENT_PLANNER_ACTION_TYPES.DRAFT_REPLY) {
-    throw new Error(
-      `Planner selected "${planner.actionType}" instead of "${AGENT_PLANNER_ACTION_TYPES.DRAFT_REPLY}". ${planner.rationaleSummary}`,
-    );
-  }
-
-  const generation = await generateDraftFromPlanner({
-    context,
-    planner,
-    trigger: input.trigger,
-    config: input.generationConfig ?? null,
-  });
-
-  const postGenerationEscalation = evaluateAgentEscalation({
-    context,
-    planner,
-    trigger: input.trigger,
-    generation,
-  });
-
-  if (postGenerationEscalation.shouldEscalate) {
-    await persistAgentEscalationDecision({
-      workspaceId: authContext.workspaceId,
-      conversationId: context.conversationId,
-      actorAgentAssignmentId: context.assignment?.id ?? null,
-      trigger: input.trigger,
-      planner,
-      generation,
       escalation: postGenerationEscalation,
+      generation,
+      approval,
+    };
+  } catch (error) {
+    await logAgentRunEvent({
+      workspaceId,
+      conversationId: input.conversationId,
+      runId,
+      actionType: AGENT_RUN_ACTION_TYPES.RUN_FAILED,
+      actor: {
+        actorUserId: actorUserId ?? undefined,
+      },
+      metadata: {
+        stage: currentStage,
+        error: toSafeErrorSummary(error),
+        triggerType: input.trigger.triggerType,
+      },
     });
 
-    return {
-      status: "escalated",
-      context,
-      planner,
-      escalation: postGenerationEscalation,
-      generation,
-      approval: null,
-    };
+    throw error;
   }
-
-  const approval = await createApprovalFromGeneratedDraftResult({
-    workspaceId: authContext.workspaceId,
-    context,
-    planner,
-    trigger: input.trigger,
-    generation,
-  });
-
-  return {
-    status: "draft_created",
-    context,
-    planner,
-    escalation: postGenerationEscalation,
-    generation,
-    approval,
-  };
 }

@@ -17,6 +17,8 @@ import {
   type EnvoyEventType,
 } from "@envoy/events";
 
+import { executeAutomaticAgentTriggerForEvent } from "@/lib/agent-trigger-runtime";
+
 const globalForEnvoyEvents = globalThis as typeof globalThis & {
   envoyEventPublisher?: InMemoryEventPublisher | NoOpEventPublisher;
 };
@@ -55,7 +57,9 @@ export function buildEnvoyEvent<TType extends EnvoyEventType>(input: {
 }
 
 export async function publishEnvoyEvent(event: EnvoyEvent) {
-  return getEventPublisher().publish(event);
+  const result = await getEventPublisher().publish(event);
+  await runPostPublishEventHooks([event]);
+  return result;
 }
 
 export async function publishEnvoyEvents(events: EnvoyEvent[]) {
@@ -68,7 +72,27 @@ export async function publishEnvoyEvents(events: EnvoyEvent[]) {
     };
   }
 
-  return getEventPublisher().publishMany(events);
+  const result = await getEventPublisher().publishMany(events);
+  await runPostPublishEventHooks(events);
+  return result;
+}
+
+async function runPostPublishEventHooks(events: EnvoyEvent[]) {
+  for (const event of events) {
+    try {
+      await executeAutomaticAgentTriggerForEvent(event);
+    } catch (error) {
+      console.error(
+        "[event-publisher] automatic trigger hook failed",
+        JSON.stringify({
+          eventId: event.eventId,
+          eventType: event.eventType,
+          workspaceId: event.workspaceId,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }
 }
 
 export {

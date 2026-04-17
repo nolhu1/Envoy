@@ -42,6 +42,7 @@ export type EvaluateAgentEscalationInput = {
 export type PersistAgentEscalationDecisionInput = {
   workspaceId: string;
   conversationId: string;
+  runId?: string | null;
   actorAgentAssignmentId?: string | null;
   actorUserId?: string | null;
   trigger: AgentTriggerContext;
@@ -349,6 +350,7 @@ export async function persistAgentEscalationDecision(
         actorAgentAssignmentId: input.actorAgentAssignmentId ?? null,
         actionType: "AGENT_ESCALATION_FLAGGED",
         metadataJson: {
+          runId: input.runId ?? null,
           shouldEscalate: input.escalation.shouldEscalate,
           escalationReasonCode: input.escalation.escalationReasonCode,
           escalationSummary: input.escalation.escalationSummary,
@@ -386,6 +388,7 @@ export async function persistAgentEscalationDecision(
           actorAgentAssignmentId: input.actorAgentAssignmentId ?? null,
           actionType: "STATE_CHANGED",
           metadataJson: {
+            runId: input.runId ?? null,
             previousState: transition.from,
             nextState: transition.to,
             triggerType: transition.event.triggerType,

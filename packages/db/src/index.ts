@@ -13,6 +13,7 @@ export {
 export {
   AGENT_ASSIGNMENT_ACTION_TYPES,
   assignAgentToConversation,
+  unassignAgentFromConversation,
 } from "./agent-assignments";
 export { buildAgentConversationContext } from "./agent-context";
 export {
@@ -70,6 +71,8 @@ export type {
   AgentAssignmentActionType,
   AssignAgentToConversationInput,
   AssignAgentToConversationResult,
+  UnassignAgentFromConversationInput,
+  UnassignAgentFromConversationResult,
 } from "./agent-assignments";
 export type {
   AgentContextAssignment,

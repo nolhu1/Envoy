@@ -27,6 +27,20 @@ export type AssignAgentToConversationResult = {
   endedAssignmentIds: string[];
 };
 
+export type UnassignAgentFromConversationInput = {
+  workspaceId: string;
+  conversationId: string;
+  unassignedByUserId: string;
+  reason?: string | null;
+};
+
+export type UnassignAgentFromConversationResult = {
+  workspaceId: string;
+  conversationId: string;
+  previousAssignmentId: string | null;
+  endedAssignmentIds: string[];
+};
+
 function toPrismaJsonValue(value: unknown) {
   return (value ?? null) as never;
 }
@@ -162,6 +176,93 @@ export async function assignAgentToConversation(
       workspaceId: input.workspaceId,
       conversationId: conversation.id,
       assignmentId: assignment.id,
+      previousAssignmentId: conversation.assignedAgentId ?? null,
+      endedAssignmentIds,
+    };
+  });
+}
+
+export async function unassignAgentFromConversation(
+  input: UnassignAgentFromConversationInput,
+): Promise<UnassignAgentFromConversationResult> {
+  const prisma = getPrisma();
+
+  return prisma.$transaction(async (tx) => {
+    const conversation = await tx.conversation.findFirst({
+      where: {
+        id: input.conversationId,
+        workspaceId: input.workspaceId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        assignedAgentId: true,
+      },
+    });
+
+    if (!conversation) {
+      throw new Error("The conversation could not be loaded for unassignment.");
+    }
+
+    const existingAssignments = await tx.agentAssignment.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+        isActive: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const endedAt = new Date();
+    const endedAssignmentIds = existingAssignments.map((assignment) => assignment.id);
+
+    if (endedAssignmentIds.length > 0) {
+      await tx.agentAssignment.updateMany({
+        where: {
+          id: {
+            in: endedAssignmentIds,
+          },
+        },
+        data: {
+          isActive: false,
+          endedAt,
+        },
+      });
+    }
+
+    await tx.conversation.update({
+      where: {
+        id: conversation.id,
+      },
+      data: {
+        assignedAgentId: null,
+      },
+    });
+
+    await tx.actionLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+        actorType: "USER",
+        actorUserId: input.unassignedByUserId,
+        actionType: AGENT_ASSIGNMENT_ACTION_TYPES.AGENT_UNASSIGNED,
+        metadataJson: toPrismaJsonValue({
+          previousAssignmentId: conversation.assignedAgentId ?? null,
+          endedAssignmentIds,
+          endedAt: endedAt.toISOString(),
+          reason: input.reason?.trim() || "Manual unassignment from conversation UI.",
+        }),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    return {
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
       previousAssignmentId: conversation.assignedAgentId ?? null,
       endedAssignmentIds,
     };

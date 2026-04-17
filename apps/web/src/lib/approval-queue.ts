@@ -17,6 +17,13 @@ import {
   formatParticipantSummary,
   getParticipantDisplayName,
 } from "@/lib/conversation-display";
+import {
+  buildEnvoyEvent,
+  ENVOY_EVENT_ENTITY_TYPES,
+  ENVOY_EVENT_SOURCES,
+  ENVOY_EVENT_TYPES,
+  publishEnvoyEvent,
+} from "@/lib/event-publisher";
 import { sendWorkspaceGmailReply } from "@/lib/gmail-send";
 import { hasPermission, PERMISSIONS, requirePermission } from "@/lib/permissions";
 import { sendWorkspaceSlackReply } from "@/lib/slack-send";
@@ -226,7 +233,7 @@ export async function rejectWorkspaceApprovalRequest(
     rejectionReason: string;
   },
 ) {
-  return reviewApprovalRequest({
+  const review = await reviewApprovalRequest({
     workspaceId: input.workspaceId,
     approvalRequestId: input.approvalRequestId,
     reviewedByUserId: input.actorUserId,
@@ -234,6 +241,30 @@ export async function rejectWorkspaceApprovalRequest(
     rejectionReason: input.rejectionReason,
     nextConversationState: input.nextConversationState ?? null,
   });
+
+  await publishEnvoyEvent(
+    buildEnvoyEvent({
+      eventType: ENVOY_EVENT_TYPES.APPROVAL_REJECTED,
+      workspaceId: input.workspaceId,
+      entityType: ENVOY_EVENT_ENTITY_TYPES.APPROVAL_REQUEST,
+      entityId: review.approvalRequestId,
+      source: ENVOY_EVENT_SOURCES.APPROVAL,
+      payload: {
+        approvalRequestId: review.approvalRequestId,
+        conversationId: review.conversationId,
+        draftMessageId: review.draftMessageId,
+        reviewedByUserId: review.reviewedByUserId ?? input.actorUserId,
+        rejectionReason: review.rejectionReason ?? input.rejectionReason,
+        metadata: {
+          provider: null,
+          autoAgentTriggerEligible: true,
+          conversationState: review.conversationState,
+        },
+      },
+    }),
+  );
+
+  return review;
 }
 
 export async function editAndApproveWorkspaceApprovalRequest(

@@ -1,6 +1,9 @@
 import "server-only";
 
-import { assignAgentToConversation } from "@envoy/db";
+import {
+  assignAgentToConversation,
+  unassignAgentFromConversation,
+} from "@envoy/db";
 
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 
@@ -27,5 +30,19 @@ export async function assignAgentToConversationForWorkspace(
     allowedActionsJson: input.allowedActionsJson,
     escalationRulesJson: input.escalationRulesJson,
     assignedByUserId: authContext.userId,
+  });
+}
+
+export async function unassignAgentFromConversationForWorkspace(input: {
+  conversationId: string;
+  reason?: string | null;
+}) {
+  const authContext = await requirePermission(PERMISSIONS.ASSIGN_AGENTS);
+
+  return unassignAgentFromConversation({
+    workspaceId: authContext.workspaceId,
+    conversationId: input.conversationId,
+    unassignedByUserId: authContext.userId,
+    reason: input.reason ?? null,
   });
 }
