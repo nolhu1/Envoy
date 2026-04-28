@@ -30,6 +30,13 @@ type SlackApiResponse = {
   response_metadata?: SlackApiCursor;
 };
 
+type SlackApiError = Error & {
+  code?: string;
+  statusCode?: number;
+  retryAfterSeconds?: number | null;
+  retryable?: boolean;
+};
+
 export type SlackDmConversation = {
   id: string;
   created?: number;
@@ -190,17 +197,39 @@ async function fetchSlackJson<TResponse extends SlackApiResponse>(
     },
     cache: "no-store",
   });
+  const responseText = await response.text();
+  const json = responseText ? (JSON.parse(responseText) as TResponse) : null;
+  const retryAfterHeader = response.headers.get("retry-after");
+  const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : null;
 
   if (!response.ok) {
-    throw new Error(`Slack API request failed with status ${response.status}.`);
+    const error = new Error(
+      `Slack API request failed with status ${response.status}.`,
+    ) as SlackApiError;
+    error.statusCode = response.status;
+    error.retryAfterSeconds = Number.isFinite(retryAfterSeconds)
+      ? retryAfterSeconds
+      : null;
+    error.code = response.status === 429 ? "rate_limited" : "provider_http_error";
+    error.retryable = response.status === 429 || response.status >= 500;
+    throw error;
   }
 
-  const json = (await response.json()) as TResponse;
+  if (!json) {
+    throw new Error("Slack API request returned an empty response body.");
+  }
 
   if (!json.ok) {
-    throw new Error(
+    const error = new Error(
       `Slack API request failed: ${json.error ?? "unknown_error"}.`,
-    );
+    ) as SlackApiError;
+    error.statusCode = response.status;
+    error.retryAfterSeconds = Number.isFinite(retryAfterSeconds)
+      ? retryAfterSeconds
+      : null;
+    error.code = json.error === "ratelimited" ? "rate_limited" : "provider_error";
+    error.retryable = json.error === "ratelimited";
+    throw error;
   }
 
   return json;

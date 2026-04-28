@@ -31,6 +31,7 @@ import {
   buildSlackSuccessfulSyncMetadata,
   buildSlackSyncInProgressMetadata,
 } from "@/lib/slack-sync-checkpoint";
+import { sanitizeDiagnostics, sanitizeErrorMessage } from "@/lib/security";
 
 type WorkspaceSlackIntegration = {
   id: string;
@@ -299,7 +300,7 @@ export async function syncWorkspaceSlackIntegration(input: {
         JSON.stringify({
           integrationId: input.integrationId,
           workspaceId: input.workspaceId,
-          diagnostics: slackSync.diagnosticsJson,
+          diagnostics: sanitizeDiagnostics(slackSync.diagnosticsJson),
         }),
       );
     }
@@ -486,7 +487,7 @@ export async function syncWorkspaceSlackIntegration(input: {
           status: "ERROR",
           metadata: {
             provider: "slack",
-            error: error instanceof Error ? error.message : "Unknown error",
+            error: sanitizeErrorMessage(error, "Unknown Slack sync error."),
             recentWindowStart: recentWindowStart.toISOString(),
             recentWindowEnd: failedAt.toISOString(),
           },

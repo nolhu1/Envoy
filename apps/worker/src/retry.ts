@@ -23,14 +23,61 @@ export type WorkerRetryPolicyInput = Partial<
   backoff?: Partial<WorkerBackoffPolicy> | null;
 };
 
-export const DEFAULT_WORKER_RETRY_POLICY: WorkerRetryPolicy = {
-  maxAttempts: 3,
-  backoff: {
-    strategy: WORKER_BACKOFF_STRATEGIES.EXPONENTIAL,
-    delayMs: 1_000,
-    maxDelayMs: 30_000,
-  },
-};
+const WORKER_DEFAULT_MAX_ATTEMPTS_ENV = "WORKER_DEFAULT_MAX_ATTEMPTS";
+const WORKER_DEFAULT_BACKOFF_STRATEGY_ENV = "WORKER_DEFAULT_BACKOFF_STRATEGY";
+const WORKER_DEFAULT_BACKOFF_DELAY_MS_ENV = "WORKER_DEFAULT_BACKOFF_DELAY_MS";
+const WORKER_DEFAULT_BACKOFF_MAX_DELAY_MS_ENV =
+  "WORKER_DEFAULT_BACKOFF_MAX_DELAY_MS";
+
+function toPositiveInt(value: string | undefined, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return fallback;
+  }
+
+  return Math.trunc(numeric);
+}
+
+function readDefaultBackoffStrategy() {
+  const strategy = process.env[WORKER_DEFAULT_BACKOFF_STRATEGY_ENV];
+
+  if (strategy === WORKER_BACKOFF_STRATEGIES.FIXED) {
+    return WORKER_BACKOFF_STRATEGIES.FIXED;
+  }
+
+  if (strategy === WORKER_BACKOFF_STRATEGIES.EXPONENTIAL) {
+    return WORKER_BACKOFF_STRATEGIES.EXPONENTIAL;
+  }
+
+  return WORKER_BACKOFF_STRATEGIES.EXPONENTIAL;
+}
+
+function resolveDefaultWorkerRetryPolicy(): WorkerRetryPolicy {
+  const delayMs = toPositiveInt(
+    process.env[WORKER_DEFAULT_BACKOFF_DELAY_MS_ENV],
+    1_000,
+  );
+  const maxDelayMs = toPositiveInt(
+    process.env[WORKER_DEFAULT_BACKOFF_MAX_DELAY_MS_ENV],
+    30_000,
+  );
+
+  return {
+    maxAttempts: toPositiveInt(process.env[WORKER_DEFAULT_MAX_ATTEMPTS_ENV], 3),
+    backoff: {
+      strategy: readDefaultBackoffStrategy(),
+      delayMs,
+      maxDelayMs: Math.max(delayMs, maxDelayMs),
+    },
+  };
+}
+
+export const DEFAULT_WORKER_RETRY_POLICY: WorkerRetryPolicy =
+  resolveDefaultWorkerRetryPolicy();
 
 export function resolveWorkerRetryPolicy(
   input?: WorkerRetryPolicyInput | null,

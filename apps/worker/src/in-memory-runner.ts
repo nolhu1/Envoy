@@ -67,6 +67,19 @@ export type WorkerDeadLetterEntry = {
   replayedJobIds: string[];
 };
 
+type WorkerInFlightJobEntry = {
+  job: WorkerJob;
+  startedAt: string;
+  heartbeatAt: string;
+};
+
+export type WorkerQueueDepthSnapshot = {
+  queuedJobCount: number;
+  inFlightJobCount: number;
+  deadLetterCount: number;
+  executionCount: number;
+};
+
 export type ProcessedWorkerJobResult = {
   job: WorkerJob;
   result: WorkerJobResult;
@@ -78,6 +91,8 @@ export type ProcessedWorkerJobResult = {
 export type InMemoryWorkerRunnerOptions = {
   logger?: WorkerJobLogger;
   now?: () => Date;
+  recoverStuckJobs?: boolean;
+  stuckJobThresholdMs?: number;
 };
 
 export class InMemoryJobQueue {
@@ -85,6 +100,7 @@ export class InMemoryJobQueue {
   private readonly executionHistory: WorkerExecutionRecord[] = [];
   private readonly deadLetters: WorkerDeadLetterEntry[] = [];
   private readonly logs: WorkerJobLogEntry[] = [];
+  private readonly inFlightJobs = new Map<string, WorkerInFlightJobEntry>();
 
   enqueue<TType extends WorkerJobType>(input: {
     jobType: TType;
@@ -133,6 +149,24 @@ export class InMemoryJobQueue {
     return [...this.logs];
   }
 
+  getInFlightJobs() {
+    return [...this.inFlightJobs.values()].map((entry) => ({
+      ...entry,
+      job: {
+        ...entry.job,
+      },
+    }));
+  }
+
+  getQueueDepthSnapshot(): WorkerQueueDepthSnapshot {
+    return {
+      queuedJobCount: this.jobs.length,
+      inFlightJobCount: this.inFlightJobs.size,
+      deadLetterCount: this.deadLetters.length,
+      executionCount: this.executionHistory.length,
+    };
+  }
+
   drainReady(now: Date = new Date()) {
     const readyJobs: WorkerJob[] = [];
     const deferredJobs: WorkerJob[] = [];
@@ -158,6 +192,30 @@ export class InMemoryJobQueue {
 
   recordLog(entry: WorkerJobLogEntry) {
     this.logs.push(entry);
+  }
+
+  markInFlight(job: WorkerJob, startedAt: string) {
+    this.inFlightJobs.set(job.jobId, {
+      job,
+      startedAt,
+      heartbeatAt: startedAt,
+    });
+  }
+
+  clearInFlight(jobId: string) {
+    this.inFlightJobs.delete(jobId);
+  }
+
+  heartbeatInFlight(jobId: string, heartbeatAt: string) {
+    const entry = this.inFlightJobs.get(jobId);
+    if (!entry) {
+      return;
+    }
+
+    this.inFlightJobs.set(jobId, {
+      ...entry,
+      heartbeatAt,
+    });
   }
 
   requeue(job: WorkerJob) {
@@ -201,11 +259,54 @@ export class InMemoryJobQueue {
 
     return replayedJob;
   }
+
+  recoverStuckJobs(input: {
+    now?: Date;
+    stuckAfterMs: number;
+    retryPolicy?: WorkerRetryPolicyInput | null;
+  }) {
+    const now = input.now ?? new Date();
+    const recoveredJobs: WorkerJob[] = [];
+
+    for (const [jobId, inFlight] of this.inFlightJobs.entries()) {
+      const lastHeartbeatAt = new Date(inFlight.heartbeatAt).getTime();
+      if (!Number.isFinite(lastHeartbeatAt)) {
+        continue;
+      }
+
+      if (now.getTime() - lastHeartbeatAt < input.stuckAfterMs) {
+        continue;
+      }
+
+      const recoveredJob = {
+        ...inFlight.job,
+        runAt: now.toISOString(),
+        queuedAt: now.toISOString(),
+        retryPolicy: input.retryPolicy
+          ? resolveWorkerRetryPolicy(input.retryPolicy)
+          : inFlight.job.retryPolicy,
+        lastError: {
+          message: "Recovered from in-flight stuck state.",
+          code: "stuck_job_recovered",
+          retryable: true,
+          failedAt: now.toISOString(),
+        },
+      } satisfies WorkerJob;
+
+      this.inFlightJobs.delete(jobId);
+      this.jobs.push(recoveredJob);
+      recoveredJobs.push(recoveredJob);
+    }
+
+    return recoveredJobs;
+  }
 }
 
 export class InMemoryWorkerRunner {
   private readonly now: () => Date;
   private readonly logger?: WorkerJobLogger;
+  private readonly recoverStuckJobs: boolean;
+  private readonly stuckJobThresholdMs: number;
 
   constructor(
     private readonly registry: WorkerJobRegistry,
@@ -214,9 +315,36 @@ export class InMemoryWorkerRunner {
   ) {
     this.now = options.now ?? (() => new Date());
     this.logger = options.logger;
+    this.recoverStuckJobs = options.recoverStuckJobs ?? true;
+    this.stuckJobThresholdMs = Math.max(
+      1_000,
+      Math.trunc(options.stuckJobThresholdMs ?? 10 * 60_000),
+    );
   }
 
   async processAll(context: WorkerJobContext = {}) {
+    if (this.recoverStuckJobs) {
+      const recovered = this.queue.recoverStuckJobs({
+        now: this.now(),
+        stuckAfterMs: this.stuckJobThresholdMs,
+      });
+
+      for (const job of recovered) {
+        await context.log?.({
+          level: "warn",
+          occurredAt: this.now().toISOString(),
+          message: "Recovered stuck in-flight worker job and re-queued it.",
+          jobId: job.jobId,
+          jobType: job.jobType,
+          workspaceId: job.workspaceId,
+          attempt: job.attempt + 1,
+          metadata: {
+            stuckJobThresholdMs: this.stuckJobThresholdMs,
+          },
+        });
+      }
+    }
+
     const jobs = this.queue.drainReady(this.now());
     const results: ProcessedWorkerJobResult[] = [];
 
@@ -228,136 +356,152 @@ export class InMemoryWorkerRunner {
 
     for (const job of jobs) {
       const startedAt = this.now().toISOString();
-      const result = await this.registry.dispatch(job, {
-        ...context,
-        log,
-      });
-      const handledAt = result.handledAt;
+      this.queue.markInFlight(job, startedAt);
+      try {
+        const result = await this.registry.dispatch(job, {
+          ...context,
+          log,
+        });
+        const handledAt = result.handledAt;
 
-      if (result.status === WORKER_JOB_STATUSES.FAILED) {
-        const canRetry =
-          (result.error?.retryable ?? true) &&
-          job.attempt + 1 < job.retryPolicy.maxAttempts;
+        if (result.status === WORKER_JOB_STATUSES.FAILED) {
+          const canRetry =
+            (result.error?.retryable ?? true) &&
+            job.attempt + 1 < job.retryPolicy.maxAttempts;
 
-        if (canRetry) {
-          const retryAttempt = job.attempt + 1;
-          const nextRunAt = calculateWorkerNextRunAt({
-            from: handledAt,
-            backoff: job.retryPolicy.backoff,
-            retryAttempt,
+          if (canRetry) {
+            const retryAttempt = job.attempt + 1;
+            const nextRunAt = calculateWorkerNextRunAt({
+              from: handledAt,
+              backoff: job.retryPolicy.backoff,
+              retryAttempt,
+            });
+            const retryJob = {
+              ...job,
+              runAt: nextRunAt,
+              attempt: retryAttempt,
+              lastAttemptedAt: handledAt,
+              lastError: createJobErrorSnapshot(result, handledAt),
+            } satisfies WorkerJob;
+            const execution = createExecutionRecord({
+              job,
+              result,
+              startedAt,
+              status: WORKER_EXECUTION_STATUSES.RETRY_SCHEDULED,
+              nextRunAt,
+            });
+
+            this.queue.requeue(retryJob);
+            this.queue.recordExecution(execution);
+            await log({
+              level: "warn",
+              occurredAt: handledAt,
+              message: "Worker job failed and was scheduled for retry.",
+              jobId: job.jobId,
+              jobType: job.jobType,
+              workspaceId: job.workspaceId,
+              attempt: job.attempt + 1,
+              error: result.error ?? null,
+              metadata: {
+                maxAttempts: job.retryPolicy.maxAttempts,
+                nextRunAt,
+              },
+            });
+            results.push({
+              job,
+              result,
+              execution,
+              retryJob,
+            });
+            continue;
+          }
+
+          const deadLetter = this.queue.addDeadLetter({
+            deadLetterId: randomUUID(),
+            job: {
+              ...job,
+              lastAttemptedAt: handledAt,
+              lastError: createJobErrorSnapshot(result, handledAt),
+            },
+            deadLetteredAt: handledAt,
+            reason:
+              result.error?.retryable === false
+                ? WORKER_DEAD_LETTER_REASONS.NON_RETRYABLE_FAILURE
+                : WORKER_DEAD_LETTER_REASONS.MAX_ATTEMPTS_EXCEEDED,
+            finalResult: result,
+            executionHistory: [
+              ...this.queue
+                .getExecutionHistory()
+                .filter((record) => record.jobId === job.jobId),
+            ],
+            replayedJobIds: [],
           });
-          const retryJob = {
-            ...job,
-            runAt: nextRunAt,
-            attempt: retryAttempt,
-            lastAttemptedAt: handledAt,
-            lastError: createJobErrorSnapshot(result, handledAt),
-          } satisfies WorkerJob;
           const execution = createExecutionRecord({
             job,
             result,
             startedAt,
-            status: WORKER_EXECUTION_STATUSES.RETRY_SCHEDULED,
-            nextRunAt,
+            status: WORKER_EXECUTION_STATUSES.DEAD_LETTERED,
           });
 
-          this.queue.requeue(retryJob);
+          deadLetter.executionHistory.push(execution);
           this.queue.recordExecution(execution);
           await log({
-            level: "warn",
+            level: "error",
             occurredAt: handledAt,
-            message: "Worker job failed and was scheduled for retry.",
+            message: "Worker job moved to dead letter state.",
             jobId: job.jobId,
             jobType: job.jobType,
             workspaceId: job.workspaceId,
             attempt: job.attempt + 1,
             error: result.error ?? null,
             metadata: {
+              deadLetterId: deadLetter.deadLetterId,
+              reason: deadLetter.reason,
               maxAttempts: job.retryPolicy.maxAttempts,
-              nextRunAt,
             },
           });
           results.push({
             job,
             result,
             execution,
-            retryJob,
+            deadLetter,
           });
           continue;
         }
 
-        const deadLetter = this.queue.addDeadLetter({
-          deadLetterId: randomUUID(),
-          job: {
-            ...job,
-            lastAttemptedAt: handledAt,
-            lastError: createJobErrorSnapshot(result, handledAt),
-          },
-          deadLetteredAt: handledAt,
-          reason:
-            result.error?.retryable === false
-              ? WORKER_DEAD_LETTER_REASONS.NON_RETRYABLE_FAILURE
-              : WORKER_DEAD_LETTER_REASONS.MAX_ATTEMPTS_EXCEEDED,
-          finalResult: result,
-          executionHistory: [
-            ...this.queue
-              .getExecutionHistory()
-              .filter((record) => record.jobId === job.jobId),
-          ],
-          replayedJobIds: [],
-        });
         const execution = createExecutionRecord({
           job,
           result,
           startedAt,
-          status: WORKER_EXECUTION_STATUSES.DEAD_LETTERED,
+          status:
+            result.status === WORKER_JOB_STATUSES.SKIPPED
+              ? WORKER_EXECUTION_STATUSES.SKIPPED
+              : WORKER_EXECUTION_STATUSES.COMPLETED,
         });
 
-        deadLetter.executionHistory.push(execution);
         this.queue.recordExecution(execution);
-        await log({
-          level: "error",
-          occurredAt: handledAt,
-          message: "Worker job moved to dead letter state.",
-          jobId: job.jobId,
-          jobType: job.jobType,
-          workspaceId: job.workspaceId,
-          attempt: job.attempt + 1,
-          error: result.error ?? null,
-          metadata: {
-            deadLetterId: deadLetter.deadLetterId,
-            reason: deadLetter.reason,
-            maxAttempts: job.retryPolicy.maxAttempts,
-          },
-        });
         results.push({
           job,
           result,
           execution,
-          deadLetter,
         });
-        continue;
+      } finally {
+        this.queue.clearInFlight(job.jobId);
       }
-
-      const execution = createExecutionRecord({
-        job,
-        result,
-        startedAt,
-        status:
-          result.status === WORKER_JOB_STATUSES.SKIPPED
-            ? WORKER_EXECUTION_STATUSES.SKIPPED
-            : WORKER_EXECUTION_STATUSES.COMPLETED,
-      });
-
-      this.queue.recordExecution(execution);
-      results.push({
-        job,
-        result,
-        execution,
-      });
     }
 
     return results;
+  }
+
+  getQueueDepthSnapshot() {
+    return this.queue.getQueueDepthSnapshot();
+  }
+
+  replayDeadLetter(input: {
+    deadLetterId: string;
+    retryPolicy?: WorkerRetryPolicyInput | null;
+  }) {
+    return this.queue.replayDeadLetter(input);
   }
 }
 

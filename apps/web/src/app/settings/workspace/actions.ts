@@ -14,6 +14,14 @@ import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { PERMISSIONS } from "@/lib/permissions";
+import {
+  buildEnvoyEvent,
+  ENVOY_EVENT_ENTITY_TYPES,
+  ENVOY_EVENT_SOURCES,
+  ENVOY_EVENT_TYPES,
+  publishEnvoyEvent,
+} from "@/lib/event-publisher";
+import { sanitizeUiErrorMessage } from "@/lib/security";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import { requireAuthenticatedEntryPoint } from "@/lib/workspace-guards";
 import { generateDraftFromPlanner } from "@/lib/draft-generator";
@@ -59,11 +67,7 @@ export async function startSlackConnectAction() {
 }
 
 function toSyncErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return "Unable to sync integration.";
+  return sanitizeUiErrorMessage(error) || "Unable to sync integration.";
 }
 
 async function requireWorkspaceForIntegrationManagement() {
@@ -115,6 +119,9 @@ async function getManagedIntegration(input: {
       id: true,
       workspaceId: true,
       platform: true,
+      displayName: true,
+      externalAccountId: true,
+      status: true,
       platformMetadataJson: true,
     },
   });
@@ -376,6 +383,26 @@ export async function disconnectIntegrationAction(formData: FormData) {
     });
   }
 
+  await publishEnvoyEvent(
+    buildEnvoyEvent({
+      eventType: ENVOY_EVENT_TYPES.INTEGRATION_DISCONNECTED,
+      workspaceId: workspace.id,
+      entityType: ENVOY_EVENT_ENTITY_TYPES.INTEGRATION,
+      entityId: integration.id,
+      source: ENVOY_EVENT_SOURCES.UI,
+      payload: {
+        integrationId: integration.id,
+        platform: integration.platform,
+        externalAccountId: integration.externalAccountId ?? null,
+        status: "DISCONNECTED",
+        metadata: {
+          provider: integration.platform === "EMAIL" ? "gmail" : "slack",
+          displayName: integration.displayName ?? null,
+        },
+      },
+    }),
+  );
+
   redirect(
     `/settings/workspace?integration=${
       integration.platform === "EMAIL" ? "gmail" : "slack"
@@ -507,8 +534,7 @@ export async function previewDraftGeneratorAction(formData: FormData) {
       throw error;
     }
 
-    const message =
-      error instanceof Error ? error.message : "Unable to generate draft preview.";
+    const message = sanitizeUiErrorMessage(error);
     redirect(
       `/settings/workspace?integration=draft-preview&action=preview&status=error&message=${encodeURIComponent(
         message,

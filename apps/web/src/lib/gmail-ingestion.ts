@@ -34,6 +34,7 @@ import {
   buildSuccessfulSyncMetadata,
   buildSyncInProgressMetadata,
 } from "@/lib/gmail-sync-checkpoint";
+import { sanitizeErrorMessage } from "@/lib/security";
 
 type WorkspaceGmailIntegration = {
   id: string;
@@ -518,7 +519,7 @@ export async function syncWorkspaceGmailIntegration(input: {
           status: "ERROR",
           metadata: {
             provider: "gmail",
-            error: error instanceof Error ? error.message : "Unknown error",
+            error: sanitizeErrorMessage(error, "Unknown Gmail sync error."),
             recentWindowStart: recentWindowStart.toISOString(),
             recentWindowEnd: failedAt.toISOString(),
           },

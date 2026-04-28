@@ -18,6 +18,7 @@ import { generateDraftAndCreateApprovalForWorkspace } from "@/lib/agent-draft-fl
 import { sendWorkspaceGmailReply } from "@/lib/gmail-send";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 import { sendWorkspaceSlackReply } from "@/lib/slack-send";
+import { sanitizeUiErrorMessage } from "@/lib/security";
 
 function buildThreadRedirect(
   conversationId: string,
@@ -121,8 +122,7 @@ export async function sendManualReplyAction(formData: FormData) {
 
     redirect(buildThreadRedirect(conversation.id, {
       reply: "error",
-      message:
-        error instanceof Error ? error.message : "Unable to send the reply.",
+      message: sanitizeUiErrorMessage(error),
     }));
   }
 }
@@ -217,9 +217,7 @@ export async function assignConversationAgentAction(formData: FormData) {
       buildThreadRedirect(conversation.id, {
         agent: "error",
         message:
-          error instanceof Error
-            ? error.message
-            : "Unable to assign the agent.",
+          sanitizeUiErrorMessage(error),
       }),
     );
   }
@@ -274,9 +272,7 @@ export async function unassignConversationAgentAction(formData: FormData) {
       buildThreadRedirect(conversation.id, {
         agent: "error",
         message:
-          error instanceof Error
-            ? error.message
-            : "Unable to unassign the agent.",
+          sanitizeUiErrorMessage(error),
       }),
     );
   }
@@ -353,9 +349,7 @@ export async function runConversationAgentAction(formData: FormData) {
       buildThreadRedirect(conversation.id, {
         agentRun: "error",
         agentRunMessage:
-          error instanceof Error
-            ? error.message
-            : "Unable to run the agent for this conversation.",
+          sanitizeUiErrorMessage(error),
       }),
     );
   }

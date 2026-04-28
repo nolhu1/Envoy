@@ -1,5 +1,7 @@
 import "server-only";
 
+import { sanitizeErrorMessage } from "@/lib/security";
+
 type SlackSyncCheckpointStatus = "IDLE" | "SYNC_IN_PROGRESS" | "SUCCEEDED" | "FAILED";
 type SlackSyncFailureCategory =
   | "AUTH"
@@ -184,8 +186,10 @@ export function buildSlackFailedSyncMetadata(input: {
       messageCount: previousCheckpoint?.messageCount ?? 0,
       attachmentCount: previousCheckpoint?.attachmentCount ?? 0,
       diagnosticsSummary: {
-        message:
-          input.error instanceof Error ? input.error.message : "Unknown Slack sync error",
+        message: sanitizeErrorMessage(
+          input.error,
+          "Unknown Slack sync error",
+        ),
       },
       lastFailureCategory: classifySyncFailure(input.error),
       lastFailureAt: input.failedAt.toISOString(),

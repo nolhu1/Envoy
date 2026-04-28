@@ -289,6 +289,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                         <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
                           {row.conversationState.replaceAll("_", " ")}
                         </span>
+                        {row.hasSendFailure ? (
+                          <span className="inline-flex rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-medium text-rose-800">
+                            Send failed
+                          </span>
+                        ) : null}
                       </div>
                       <p className="mt-3 truncate text-base font-semibold text-slate-950">
                         {row.title}

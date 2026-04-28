@@ -99,6 +99,15 @@ export default async function ConversationThreadPage({
           </section>
         ) : null}
 
+        {thread.recentSendFailure ? (
+          <section className="mb-6 rounded-[24px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+            Last outbound send failed at {formatTimestamp(thread.recentSendFailure.failedAt)}.
+            {thread.recentSendFailure.errorSummary
+              ? ` ${thread.recentSendFailure.errorSummary}`
+              : ""}
+          </section>
+        ) : null}
+
         {agentStatus === "saved" ? (
           <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
             Agent assignment saved successfully.
@@ -449,6 +458,9 @@ export default async function ConversationThreadPage({
                         </span>
                         <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">
                           {message.direction.toLowerCase()}
+                        </span>
+                        <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                          {message.status.toLowerCase().replaceAll("_", " ")}
                         </span>
                       </div>
                       <p className="mt-3 text-base font-semibold text-slate-950">

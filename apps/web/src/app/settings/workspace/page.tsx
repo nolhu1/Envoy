@@ -6,6 +6,7 @@ import {
   PERMISSIONS,
   requirePermission,
 } from "@/lib/permissions";
+import { getWorkspaceOperationalSnapshot } from "@/lib/observability";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import {
   createTestApprovalRequestAction,
@@ -39,11 +40,20 @@ export default async function WorkspaceSettingsPage({
     authContext.role,
     PERMISSIONS.CONNECT_INTEGRATIONS,
   );
+  const canViewAuditLogs = hasPermission(
+    authContext.role,
+    PERMISSIONS.VIEW_AUDIT_LOGS,
+  );
   const canUseDevApprovalHelper =
     canManageIntegrations && authContext.role === "ADMIN";
   const workspace = await getCurrentWorkspace();
   const managedIntegrations = canManageIntegrations
     ? await getCurrentWorkspaceManagedIntegrations()
+    : null;
+  const operationalSnapshot = canViewAuditLogs
+    ? await getWorkspaceOperationalSnapshot({
+        workspaceId: authContext.workspaceId,
+      })
     : null;
   const devApprovalConversations = canUseDevApprovalHelper
     ? await getPrisma().conversation.findMany({
@@ -117,6 +127,22 @@ export default async function WorkspaceSettingsPage({
       dateStyle: "medium",
       timeStyle: "short",
     }).format(value);
+  }
+
+  function formatDurationMs(value: number | null) {
+    if (value == null || !Number.isFinite(value)) {
+      return "n/a";
+    }
+
+    if (value < 1_000) {
+      return `${Math.round(value)} ms`;
+    }
+
+    if (value < 60_000) {
+      return `${(value / 1_000).toFixed(1)} sec`;
+    }
+
+    return `${(value / 60_000).toFixed(1)} min`;
   }
 
   function renderIntegrationBanner() {
@@ -254,6 +280,14 @@ export default async function WorkspaceSettingsPage({
             >
               Members
             </Link>
+            {canViewAuditLogs ? (
+              <Link
+                href="/settings/audit"
+                className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
+              >
+                Audit logs
+              </Link>
+            ) : null}
           </div>
         </header>
 
@@ -544,7 +578,21 @@ export default async function WorkspaceSettingsPage({
                         {integration.diagnosticsSummary ?? "No diagnostics available."}
                       </dd>
                     </div>
+                    <div>
+                      <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                        Status detail
+                      </dt>
+                      <dd className="mt-1">
+                        {integration.statusSummary ?? "No additional status detail."}
+                      </dd>
+                    </div>
                   </dl>
+
+                  {integration.requiresReconnect ? (
+                    <div className="mt-4 rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      Integration requires reconnect before reliable sync/send operations.
+                    </div>
+                  ) : null}
 
                   <div className="mt-5 flex flex-wrap gap-3">
                     {integration.provider === "gmail" ? (
@@ -603,6 +651,97 @@ export default async function WorkspaceSettingsPage({
                   </div>
                 </article>
               ))}
+            </div>
+          </section>
+        ) : null}
+
+        {canViewAuditLogs && operationalSnapshot ? (
+          <section className="mt-8 rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
+              Observability
+            </p>
+            <h2 className="mt-3 text-xl font-semibold text-slate-950">
+              Operational snapshot
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
+              Dashboard-ready metrics derived from canonical operational data for this
+              workspace.
+            </p>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Sync failures
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {operationalSnapshot.connectorSyncFailures.activeErrorIntegrations}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Active integration errors
+                </p>
+              </article>
+
+              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Send failure rate
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {(operationalSnapshot.sendFailureRate.failureRate * 100).toFixed(1)}%
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {operationalSnapshot.sendFailureRate.failedOutboundAttempts}/
+                  {operationalSnapshot.sendFailureRate.totalOutboundAttempts} outbound attempts
+                </p>
+              </article>
+
+              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Worker queue depth
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {operationalSnapshot.workerQueueDepth.queuedJobCount ?? "n/a"}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  in-flight {operationalSnapshot.workerQueueDepth.inFlightJobCount ?? "n/a"} ·
+                  dead-letter {operationalSnapshot.workerQueueDepth.deadLetterCount ?? "n/a"}
+                </p>
+              </article>
+
+              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Avg agent latency
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {formatDurationMs(operationalSnapshot.averageAgentLatency.averageLatencyMs)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {operationalSnapshot.averageAgentLatency.sampleCount} samples
+                </p>
+              </article>
+
+              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Approval turnaround
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {formatDurationMs(
+                    operationalSnapshot.approvalTurnaroundTime.averageTurnaroundMs,
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {operationalSnapshot.approvalTurnaroundTime.sampleCount} reviewed approvals
+                </p>
+              </article>
+            </div>
+
+            <div className="mt-5 rounded-[18px] border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
+              Window starts {formatDateTime(new Date(operationalSnapshot.windowStartedAt))}.
+              Snapshot captured {formatDateTime(new Date(operationalSnapshot.observedAt))}.
+              {operationalSnapshot.workerQueueDepth.updatedAt
+                ? ` Worker metrics updated ${formatDateTime(
+                    new Date(operationalSnapshot.workerQueueDepth.updatedAt),
+                  )}.`
+                : " Worker metrics unavailable (worker may be idle)."}
             </div>
           </section>
         ) : null}

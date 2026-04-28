@@ -57,6 +57,13 @@ export {
   validateSlackOAuthStatePayload,
 } from "./slack-oauth";
 export {
+  DEFAULT_SLACK_SIGNATURE_MAX_AGE_SECONDS,
+  SLACK_SIGNATURE_VERSION,
+  SLACK_SIGNING_SECRET_ENV,
+  getSlackSigningSecret,
+  verifySlackRequestSignature,
+} from "./slack-webhook";
+export {
   normalizeGmailAttachmentCandidates,
   normalizeGmailConversationCandidate,
   normalizeGmailMessageCandidate,
@@ -177,6 +184,10 @@ export type {
   SlackOAuthStatePayload,
   SlackWorkspaceIdentity,
 } from "./slack-oauth";
+export type {
+  SlackSignatureVerificationResult,
+  VerifySlackRequestSignatureInput,
+} from "./slack-webhook";
 export type { GmailThreadNormalizationResult } from "./gmail-normalization";
 export type { SlackConversationNormalizationResult } from "./slack-normalization";
 export type {

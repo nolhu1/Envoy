@@ -5,6 +5,13 @@ import {
   unassignAgentFromConversation,
 } from "@envoy/db";
 
+import {
+  buildEnvoyEvent,
+  ENVOY_EVENT_ENTITY_TYPES,
+  ENVOY_EVENT_SOURCES,
+  ENVOY_EVENT_TYPES,
+  publishEnvoyEvent,
+} from "@/lib/event-publisher";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 
 export type AssignAgentInput = {
@@ -21,7 +28,7 @@ export async function assignAgentToConversationForWorkspace(
 ) {
   const authContext = await requirePermission(PERMISSIONS.ASSIGN_AGENTS);
 
-  return assignAgentToConversation({
+  const result = await assignAgentToConversation({
     workspaceId: authContext.workspaceId,
     conversationId: input.conversationId,
     goal: input.goal,
@@ -31,6 +38,24 @@ export async function assignAgentToConversationForWorkspace(
     escalationRulesJson: input.escalationRulesJson,
     assignedByUserId: authContext.userId,
   });
+
+  await publishEnvoyEvent(
+    buildEnvoyEvent({
+      eventType: ENVOY_EVENT_TYPES.AGENT_ASSIGNED,
+      workspaceId: authContext.workspaceId,
+      entityType: ENVOY_EVENT_ENTITY_TYPES.AGENT_ASSIGNMENT,
+      entityId: result.assignmentId,
+      source: ENVOY_EVENT_SOURCES.UI,
+      payload: {
+        agentAssignmentId: result.assignmentId,
+        conversationId: result.conversationId,
+        requestedByUserId: authContext.userId,
+        goal: input.goal,
+      },
+    }),
+  );
+
+  return result;
 }
 
 export async function unassignAgentFromConversationForWorkspace(input: {
@@ -39,10 +64,32 @@ export async function unassignAgentFromConversationForWorkspace(input: {
 }) {
   const authContext = await requirePermission(PERMISSIONS.ASSIGN_AGENTS);
 
-  return unassignAgentFromConversation({
+  const result = await unassignAgentFromConversation({
     workspaceId: authContext.workspaceId,
     conversationId: input.conversationId,
     unassignedByUserId: authContext.userId,
     reason: input.reason ?? null,
   });
+
+  if (result.previousAssignmentId) {
+    await publishEnvoyEvent(
+      buildEnvoyEvent({
+        eventType: ENVOY_EVENT_TYPES.AGENT_UNASSIGNED,
+        workspaceId: authContext.workspaceId,
+        entityType: ENVOY_EVENT_ENTITY_TYPES.AGENT_ASSIGNMENT,
+        entityId: result.previousAssignmentId,
+        source: ENVOY_EVENT_SOURCES.UI,
+        payload: {
+          agentAssignmentId: result.previousAssignmentId,
+          conversationId: result.conversationId,
+          requestedByUserId: authContext.userId,
+          metadata: {
+            reason: input.reason ?? null,
+          },
+        },
+      }),
+    );
+  }
+
+  return result;
 }

@@ -13,6 +13,7 @@ import {
   formatParticipantSummary,
   getParticipantDisplayName,
 } from "@/lib/conversation-display";
+import { sanitizeUiErrorMessage } from "@/lib/security";
 
 type ThreadPlatform = "EMAIL" | "SLACK";
 
@@ -54,6 +55,16 @@ type ThreadConversationRecord = {
     id: string;
     platform: ThreadPlatform;
     externalMessageId: string | null;
+    status:
+      | "RECEIVED"
+      | "DRAFT"
+      | "PENDING_APPROVAL"
+      | "APPROVED"
+      | "REJECTED"
+      | "QUEUED"
+      | "SENT"
+      | "DELIVERED"
+      | "FAILED";
     senderType: "EXTERNAL" | "USER" | "AGENT" | "SYSTEM";
     direction: "INBOUND" | "OUTBOUND" | "INTERNAL";
     bodyText: string | null;
@@ -92,6 +103,7 @@ export type ThreadMessageRow = {
   id: string;
   platform: ThreadPlatform;
   externalMessageId: string | null;
+  status: ThreadConversationRecord["messages"][number]["status"];
   senderLabel: string;
   senderType: ThreadConversationRecord["messages"][number]["senderType"];
   direction: ThreadConversationRecord["messages"][number]["direction"];
@@ -114,6 +126,11 @@ export type ConversationThread = {
   hasConfiguredTriggerRules: boolean;
   participants: ThreadConversationRecord["participants"];
   messages: ThreadMessageRow[];
+  recentSendFailure: {
+    messageId: string;
+    failedAt: Date;
+    errorSummary: string | null;
+  } | null;
 };
 
 function buildAssignedAgentLabel(record: ThreadConversationRecord) {
@@ -197,6 +214,7 @@ function toThreadMessageRow(
     id: message.id,
     platform: message.platform,
     externalMessageId: message.externalMessageId,
+    status: message.status,
     senderLabel: buildMessageSenderLabel(message),
     senderType: message.senderType,
     direction: message.direction,
@@ -209,6 +227,57 @@ function toThreadMessageRow(
       sizeLabel: formatAttachmentSize(attachment.sizeBytes),
       externalUrl: attachment.externalUrl,
     })),
+  };
+}
+
+function readFailureSummaryFromMetadata(metadata: unknown) {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+    return null;
+  }
+
+  const record = metadata as Record<string, unknown>;
+  const lastSendDiagnostics =
+    typeof record.lastSendDiagnostics === "object" &&
+    record.lastSendDiagnostics !== null &&
+    !Array.isArray(record.lastSendDiagnostics)
+      ? (record.lastSendDiagnostics as Record<string, unknown>)
+      : null;
+  const topLevelError =
+    typeof record.error === "string" ? record.error : null;
+  const diagnosticsError =
+    typeof lastSendDiagnostics?.error === "string"
+      ? lastSendDiagnostics.error
+      : null;
+
+  if (!topLevelError && !diagnosticsError) {
+    return null;
+  }
+
+  return sanitizeUiErrorMessage(diagnosticsError ?? topLevelError);
+}
+
+function resolveRecentSendFailure(record: ThreadConversationRecord) {
+  const latestFailed = record.messages
+    .slice()
+    .reverse()
+    .find(
+      (message) =>
+        message.direction === "OUTBOUND" && message.status === "FAILED",
+    );
+
+  if (!latestFailed) {
+    return null;
+  }
+
+  return {
+    messageId: latestFailed.id,
+    failedAt:
+      latestFailed.sentAt ||
+      latestFailed.receivedAt ||
+      latestFailed.createdAt,
+    errorSummary: readFailureSummaryFromMetadata(
+      latestFailed.platformMetadataJson,
+    ),
   };
 }
 
@@ -236,6 +305,7 @@ function toConversationThread(record: ThreadConversationRecord): ConversationThr
     hasConfiguredTriggerRules,
     participants: record.participants,
     messages: record.messages.map(toThreadMessageRow),
+    recentSendFailure: resolveRecentSendFailure(record),
   };
 }
 
@@ -289,6 +359,7 @@ export async function getCurrentWorkspaceConversationThread(
           id: true,
           platform: true,
           externalMessageId: true,
+          status: true,
           senderType: true,
           direction: true,
           bodyText: true,

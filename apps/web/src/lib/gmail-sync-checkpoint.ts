@@ -1,5 +1,7 @@
 import "server-only";
 
+import { sanitizeErrorMessage } from "@/lib/security";
+
 type GmailSyncCheckpointStatus = "IDLE" | "SYNC_IN_PROGRESS" | "SUCCEEDED" | "FAILED";
 type GmailSyncFailureCategory =
   | "AUTH"
@@ -181,8 +183,10 @@ export function buildFailedSyncMetadata(input: {
       messageCount: previousCheckpoint?.messageCount ?? 0,
       attachmentCount: previousCheckpoint?.attachmentCount ?? 0,
       diagnosticsSummary: {
-        message:
-          input.error instanceof Error ? input.error.message : "Unknown Gmail sync error",
+        message: sanitizeErrorMessage(
+          input.error,
+          "Unknown Gmail sync error",
+        ),
       },
       lastFailureCategory: classifySyncFailure(input.error),
       lastFailureAt: input.failedAt.toISOString(),

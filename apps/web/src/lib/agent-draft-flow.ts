@@ -17,6 +17,13 @@ import {
 
 import { generateDraftFromPlanner } from "@/lib/draft-generator";
 import {
+  buildEnvoyEvent,
+  ENVOY_EVENT_ENTITY_TYPES,
+  ENVOY_EVENT_SOURCES,
+  ENVOY_EVENT_TYPES,
+  publishEnvoyEvent,
+} from "@/lib/event-publisher";
+import {
   AGENT_RUN_ACTION_TYPES,
   buildAgentPromptInputSummary,
   buildSafeGenerationSummary,
@@ -191,6 +198,27 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
       },
     });
 
+    if (context.assignment?.id) {
+      await publishEnvoyEvent(
+        buildEnvoyEvent({
+          eventType: ENVOY_EVENT_TYPES.AGENT_RUN_REQUESTED,
+          workspaceId,
+          entityType: ENVOY_EVENT_ENTITY_TYPES.AGENT_ASSIGNMENT,
+          entityId: context.assignment.id,
+          source: ENVOY_EVENT_SOURCES.AGENT_RUNTIME,
+          payload: {
+            agentAssignmentId: context.assignment.id,
+            conversationId: context.conversationId,
+            requestedByUserId: actorUserId,
+            runId,
+            metadata: {
+              triggerType: input.trigger.triggerType,
+            },
+          },
+        }),
+      );
+    }
+
     currentStage = "planner_decided";
     const planner = planAgentResponse({
       context,
@@ -268,6 +296,30 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
           escalationReasonCode: preGenerationEscalation.escalationReasonCode,
         },
       });
+
+      if (context.assignment?.id) {
+        await publishEnvoyEvent(
+          buildEnvoyEvent({
+            eventType: ENVOY_EVENT_TYPES.AGENT_RUN_COMPLETED,
+            workspaceId,
+            entityType: ENVOY_EVENT_ENTITY_TYPES.AGENT_ASSIGNMENT,
+            entityId: context.assignment.id,
+            source: ENVOY_EVENT_SOURCES.AGENT_RUNTIME,
+            payload: {
+              agentAssignmentId: context.assignment.id,
+              conversationId: context.conversationId,
+              requestedByUserId: actorUserId,
+              runId,
+              metadata: {
+                status: "escalated",
+                stage: "pre_generation",
+                escalationReasonCode:
+                  preGenerationEscalation.escalationReasonCode ?? null,
+              },
+            },
+          }),
+        );
+      }
 
       return {
         status: "escalated",
@@ -376,6 +428,30 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
         },
       });
 
+      if (context.assignment?.id) {
+        await publishEnvoyEvent(
+          buildEnvoyEvent({
+            eventType: ENVOY_EVENT_TYPES.AGENT_RUN_COMPLETED,
+            workspaceId,
+            entityType: ENVOY_EVENT_ENTITY_TYPES.AGENT_ASSIGNMENT,
+            entityId: context.assignment.id,
+            source: ENVOY_EVENT_SOURCES.AGENT_RUNTIME,
+            payload: {
+              agentAssignmentId: context.assignment.id,
+              conversationId: context.conversationId,
+              requestedByUserId: actorUserId,
+              runId,
+              metadata: {
+                status: "escalated",
+                stage: "post_generation",
+                escalationReasonCode:
+                  postGenerationEscalation.escalationReasonCode ?? null,
+              },
+            },
+          }),
+        );
+      }
+
       return {
         status: "escalated",
         context,
@@ -415,6 +491,48 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
       },
     });
 
+    await publishEnvoyEvent(
+      buildEnvoyEvent({
+        eventType: ENVOY_EVENT_TYPES.MESSAGE_DRAFT_CREATED,
+        workspaceId,
+        entityType: ENVOY_EVENT_ENTITY_TYPES.MESSAGE,
+        entityId: approval.draftMessageId,
+        source: ENVOY_EVENT_SOURCES.AGENT_RUNTIME,
+        payload: {
+          conversationId: context.conversationId,
+          messageId: approval.draftMessageId,
+          platform: context.platform,
+          senderType: "AGENT",
+          direction: "OUTBOUND",
+          status: "PENDING_APPROVAL",
+          metadata: {
+            provider: generation.provider,
+            runId,
+          },
+        },
+      }),
+    );
+
+    await publishEnvoyEvent(
+      buildEnvoyEvent({
+        eventType: ENVOY_EVENT_TYPES.APPROVAL_REQUESTED,
+        workspaceId,
+        entityType: ENVOY_EVENT_ENTITY_TYPES.APPROVAL_REQUEST,
+        entityId: approval.approvalRequestId,
+        source: ENVOY_EVENT_SOURCES.AGENT_RUNTIME,
+        payload: {
+          approvalRequestId: approval.approvalRequestId,
+          conversationId: context.conversationId,
+          draftMessageId: approval.draftMessageId,
+          agentAssignmentId: context.assignment?.id ?? null,
+          metadata: {
+            provider: context.platform === "EMAIL" ? "gmail" : "slack",
+            runId,
+          },
+        },
+      }),
+    );
+
     await logAgentRunEvent({
       workspaceId,
       conversationId: context.conversationId,
@@ -432,6 +550,28 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
         approvalStatus: approval.approvalStatus,
       },
     });
+
+    if (context.assignment?.id) {
+      await publishEnvoyEvent(
+        buildEnvoyEvent({
+          eventType: ENVOY_EVENT_TYPES.AGENT_RUN_COMPLETED,
+          workspaceId,
+          entityType: ENVOY_EVENT_ENTITY_TYPES.AGENT_ASSIGNMENT,
+          entityId: context.assignment.id,
+          source: ENVOY_EVENT_SOURCES.AGENT_RUNTIME,
+          payload: {
+            agentAssignmentId: context.assignment.id,
+            conversationId: context.conversationId,
+            requestedByUserId: actorUserId,
+            runId,
+            metadata: {
+              status: "draft_created",
+              confidence: generation.confidenceScore,
+            },
+          },
+        }),
+      );
+    }
 
     await logAgentRunEvent({
       workspaceId,

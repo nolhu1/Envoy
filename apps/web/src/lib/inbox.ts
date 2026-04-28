@@ -54,12 +54,25 @@ type InboxConversationRecord = {
     id: string;
     bodyText: string | null;
     bodyHtml: string | null;
+    status:
+      | "RECEIVED"
+      | "DRAFT"
+      | "PENDING_APPROVAL"
+      | "APPROVED"
+      | "REJECTED"
+      | "QUEUED"
+      | "SENT"
+      | "DELIVERED"
+      | "FAILED";
     direction: "INBOUND" | "OUTBOUND" | "INTERNAL";
     senderType: "EXTERNAL" | "USER" | "AGENT" | "SYSTEM";
     sentAt: Date | null;
     receivedAt: Date | null;
     createdAt: Date;
   }>;
+  _count?: {
+    messages?: number;
+  };
   assignedAgent: {
     id: string;
     goal: string;
@@ -76,6 +89,7 @@ export type InboxRow = {
   lastActivityAt: Date;
   assignedAgentLabel: string | null;
   conversationState: InboxConversationRecord["state"];
+  hasSendFailure: boolean;
 };
 
 const INBOX_PLATFORM_OPTIONS = new Set<InboxFilters["platform"]>([
@@ -279,6 +293,11 @@ function toInboxRow(record: InboxConversationRecord): InboxRow {
     lastActivityAt: buildLastActivityAt(record),
     assignedAgentLabel: buildAssignedAgentLabel(record),
     conversationState: record.state,
+    hasSendFailure:
+      record.messages.some(
+        (message) =>
+          message.direction === "OUTBOUND" && message.status === "FAILED",
+      ) || (record._count?.messages ?? 0) > 0,
   };
 }
 
@@ -328,6 +347,7 @@ export async function getCurrentWorkspaceInboxRows() {
           id: true,
           bodyText: true,
           bodyHtml: true,
+          status: true,
           direction: true,
           senderType: true,
           sentAt: true,
@@ -336,6 +356,17 @@ export async function getCurrentWorkspaceInboxRows() {
         },
         orderBy: [{ sentAt: "desc" }, { receivedAt: "desc" }, { createdAt: "desc" }],
         take: 1,
+      },
+      _count: {
+        select: {
+          messages: {
+            where: {
+              deletedAt: null,
+              direction: "OUTBOUND",
+              status: "FAILED",
+            },
+          },
+        },
       },
       assignedAgent: {
         select: {
@@ -394,6 +425,7 @@ export async function getCurrentWorkspaceInboxRowsWithFilters(
           id: true,
           bodyText: true,
           bodyHtml: true,
+          status: true,
           direction: true,
           senderType: true,
           sentAt: true,
@@ -402,6 +434,17 @@ export async function getCurrentWorkspaceInboxRowsWithFilters(
         },
         orderBy: [{ sentAt: "desc" }, { receivedAt: "desc" }, { createdAt: "desc" }],
         take: 1,
+      },
+      _count: {
+        select: {
+          messages: {
+            where: {
+              deletedAt: null,
+              direction: "OUTBOUND",
+              status: "FAILED",
+            },
+          },
+        },
       },
       assignedAgent: {
         select: {

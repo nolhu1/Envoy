@@ -17,7 +17,9 @@ import {
   type EnvoyEventType,
 } from "@envoy/events";
 
+import { appendActionLogForEnvoyEvent } from "@/lib/action-log";
 import { executeAutomaticAgentTriggerForEvent } from "@/lib/agent-trigger-runtime";
+import { sanitizeErrorMessage } from "@/lib/security";
 
 const globalForEnvoyEvents = globalThis as typeof globalThis & {
   envoyEventPublisher?: InMemoryEventPublisher | NoOpEventPublisher;
@@ -80,6 +82,20 @@ export async function publishEnvoyEvents(events: EnvoyEvent[]) {
 async function runPostPublishEventHooks(events: EnvoyEvent[]) {
   for (const event of events) {
     try {
+      await appendActionLogForEnvoyEvent(event);
+    } catch (error) {
+      console.error(
+        "[event-publisher] action-log hook failed",
+        JSON.stringify({
+          eventId: event.eventId,
+          eventType: event.eventType,
+          workspaceId: event.workspaceId,
+          error: sanitizeErrorMessage(error, "Unknown action-log hook error."),
+        }),
+      );
+    }
+
+    try {
       await executeAutomaticAgentTriggerForEvent(event);
     } catch (error) {
       console.error(
@@ -88,7 +104,10 @@ async function runPostPublishEventHooks(events: EnvoyEvent[]) {
           eventId: event.eventId,
           eventType: event.eventType,
           workspaceId: event.workspaceId,
-          error: error instanceof Error ? error.message : String(error),
+          error: sanitizeErrorMessage(
+            error,
+            "Unknown automatic trigger hook error.",
+          ),
         }),
       );
     }

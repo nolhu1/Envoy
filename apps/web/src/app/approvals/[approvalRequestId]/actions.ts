@@ -9,6 +9,7 @@ import {
   rejectCurrentWorkspaceApprovalRequest,
   reviseRejectedCurrentWorkspaceApprovalRequest,
 } from "@/lib/approval-queue";
+import { sanitizeUiErrorMessage } from "@/lib/security";
 
 function buildApprovalDetailRedirect(
   approvalRequestId: string,
@@ -60,8 +61,7 @@ export async function approveApprovalRequestAction(formData: FormData) {
     redirect(
       buildApprovalDetailRedirect(approvalRequestId, {
         review: "error",
-        message:
-          error instanceof Error ? error.message : "Unable to approve the draft.",
+        message: sanitizeUiErrorMessage(error),
       }),
     );
   }
@@ -103,8 +103,7 @@ export async function rejectApprovalRequestAction(formData: FormData) {
     redirect(
       buildApprovalDetailRedirect(approvalRequestId, {
         review: "error",
-        message:
-          error instanceof Error ? error.message : "Unable to reject the draft.",
+        message: sanitizeUiErrorMessage(error),
       }),
     );
   }
@@ -156,10 +155,7 @@ export async function editAndApproveApprovalRequestAction(formData: FormData) {
     redirect(
       buildApprovalDetailRedirect(approvalRequestId, {
         review: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unable to edit and approve the draft.",
+        message: sanitizeUiErrorMessage(error),
       }),
     );
   }
@@ -201,10 +197,7 @@ export async function reviseRejectedApprovalRequestAction(formData: FormData) {
     redirect(
       buildApprovalDetailRedirect(approvalRequestId, {
         review: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unable to create a revised approval draft.",
+        message: sanitizeUiErrorMessage(error),
       }),
     );
   }

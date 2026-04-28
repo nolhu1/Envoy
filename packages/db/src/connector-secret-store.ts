@@ -7,6 +7,8 @@ import { getPrisma } from "./client";
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
 const IV_BYTE_LENGTH = 12;
 const ENVOY_SECRET_ENCRYPTION_KEY = "ENVOY_SECRET_ENCRYPTION_KEY";
+const ENVOY_ALLOW_LEGACY_KEY_DERIVATION =
+  "ENVOY_ALLOW_LEGACY_SECRET_KEY_DERIVATION";
 
 type SecretEnvelope = {
   iv: string;
@@ -81,7 +83,17 @@ function getEncryptionKey() {
     return base64Key;
   }
 
-  return createHash("sha256").update(rawKey, "utf8").digest();
+  if (process.env[ENVOY_ALLOW_LEGACY_KEY_DERIVATION] === "true") {
+    return createHash("sha256").update(rawKey, "utf8").digest();
+  }
+
+  throw new Error(
+    [
+      `${ENVOY_SECRET_ENCRYPTION_KEY} must be a 32-byte key encoded as either:`,
+      "64-char hex or base64.",
+      `For temporary legacy compatibility only, set ${ENVOY_ALLOW_LEGACY_KEY_DERIVATION}=true.`,
+    ].join(" "),
+  );
 }
 
 function encryptPayload(payload: SecretPayload) {

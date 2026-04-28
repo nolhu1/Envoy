@@ -47,6 +47,13 @@ export type SlackSendApiResponse = {
   };
 };
 
+type ProviderSendError = Error & {
+  code?: string;
+  statusCode?: number;
+  retryAfterSeconds?: number | null;
+  retryable?: boolean;
+};
+
 function isJsonObject(value: JsonValue | null | undefined): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -173,11 +180,20 @@ export async function executeSlackSend(
     : null;
 
   if (!response.ok || !responseJson?.ok || !responseJson.ts || !responseJson.channel) {
-    throw new Error(
+    const retryAfterHeader = response.headers.get("retry-after");
+    const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : null;
+    const error = new Error(
       `Slack send failed with status ${response.status}${
         responseJson?.error ? ` (${responseJson.error})` : ""
       }.`,
-    );
+    ) as ProviderSendError;
+    error.statusCode = response.status;
+    error.retryAfterSeconds = Number.isFinite(retryAfterSeconds)
+      ? retryAfterSeconds
+      : null;
+    error.code = response.status === 429 ? "rate_limited" : "provider_error";
+    error.retryable = response.status === 429;
+    throw error;
   }
 
   return responseJson;
@@ -223,6 +239,7 @@ export async function sendSlackReply(
       },
     };
   } catch (error) {
+    const providerError = error as ProviderSendError;
     const fallbackPayload = (() => {
       try {
         return buildSlackReplyPayload(input);
@@ -250,6 +267,10 @@ export async function sendSlackReply(
         provider: SLACK_PROVIDER,
         stage: "send",
         error: error instanceof Error ? error.message : "Unknown Slack send error.",
+        errorCode: providerError.code ?? null,
+        statusCode: providerError.statusCode ?? null,
+        retryAfterSeconds: providerError.retryAfterSeconds ?? null,
+        retryable: providerError.retryable ?? false,
       },
     };
   }

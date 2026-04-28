@@ -7,7 +7,15 @@ import { createSecret, getPrisma, rotateSecret } from "@envoy/db";
 import { NextResponse } from "next/server";
 
 import { getCurrentAppAuthContext } from "@/lib/app-auth";
+import {
+  buildEnvoyEvent,
+  ENVOY_EVENT_ENTITY_TYPES,
+  ENVOY_EVENT_SOURCES,
+  ENVOY_EVENT_TYPES,
+  publishEnvoyEvent,
+} from "@/lib/event-publisher";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { sanitizeErrorMessage } from "@/lib/security";
 import { getWorkspaceByIdForCurrentUser } from "@/lib/workspace";
 
 const SLACK_SECRET_TYPE = "slack_oauth";
@@ -210,6 +218,27 @@ export async function GET(request: Request) {
       },
     });
 
+    await publishEnvoyEvent(
+      buildEnvoyEvent({
+        eventType: ENVOY_EVENT_TYPES.INTEGRATION_CONNECTED,
+        workspaceId: workspace.id,
+        entityType: ENVOY_EVENT_ENTITY_TYPES.INTEGRATION,
+        entityId: integration.id,
+        source: ENVOY_EVENT_SOURCES.UI,
+        payload: {
+          integrationId: integration.id,
+          platform: "SLACK",
+          externalAccountId,
+          status: "CONNECTED",
+          metadata: {
+            provider: "slack",
+            slackTeamId: identity.teamId,
+            slackTeamName: identity.teamName ?? null,
+          },
+        },
+      }),
+    );
+
     return buildSuccessRedirect(request);
   } catch (error) {
     if (integrationId) {
@@ -221,7 +250,7 @@ export async function GET(request: Request) {
           status: "ERROR",
           platformMetadataJson: {
             provider: "slack",
-            connectError: error instanceof Error ? error.message : "Unknown error",
+            connectError: sanitizeErrorMessage(error, "Unknown Slack connect error."),
           },
         },
       });
@@ -229,7 +258,7 @@ export async function GET(request: Request) {
 
     return buildErrorRedirect(
       request,
-      error instanceof Error ? error.message : "Unable to complete Slack install.",
+      sanitizeErrorMessage(error, "Unable to complete Slack install."),
     );
   }
 }

@@ -3,6 +3,7 @@ import "server-only";
 import { getPrisma } from "@envoy/db";
 
 import { getCurrentAppAuthContext } from "@/lib/app-auth";
+import { sanitizeUiErrorMessage } from "@/lib/security";
 
 type IntegrationPlatform = "EMAIL" | "SLACK";
 type IntegrationStatus =
@@ -31,7 +32,9 @@ export type ManagedIntegration = {
   statusLabel: string;
   lastSyncedAt: Date | null;
   diagnosticsSummary: string | null;
+  statusSummary: string | null;
   isConnected: boolean;
+  requiresReconnect: boolean;
 };
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -58,7 +61,7 @@ function readDiagnosticsSummary(record: IntegrationRecord) {
   }
 
   if (typeof metadata.connectError === "string" && metadata.connectError) {
-    return metadata.connectError;
+    return sanitizeUiErrorMessage(metadata.connectError);
   }
 
   if (
@@ -69,15 +72,60 @@ function readDiagnosticsSummary(record: IntegrationRecord) {
   }
 
   if (typeof metadata.connectedEmail === "string" && metadata.connectedEmail) {
-    return metadata.connectedEmail;
+    return sanitizeUiErrorMessage(metadata.connectedEmail);
   }
 
   if (typeof metadata.slackTeamName === "string" && metadata.slackTeamName) {
-    return metadata.slackTeamName;
+    return sanitizeUiErrorMessage(metadata.slackTeamName);
   }
 
   if (typeof metadata.slackWorkspaceUrl === "string" && metadata.slackWorkspaceUrl) {
-    return metadata.slackWorkspaceUrl;
+    return sanitizeUiErrorMessage(metadata.slackWorkspaceUrl);
+  }
+
+  const checkpoint =
+    isJsonObject(metadata.gmailSyncCheckpoint)
+      ? metadata.gmailSyncCheckpoint
+      : isJsonObject(metadata.slackSyncCheckpoint)
+        ? metadata.slackSyncCheckpoint
+        : null;
+
+  if (
+    checkpoint &&
+    isJsonObject(checkpoint.diagnosticsSummary) &&
+    typeof checkpoint.diagnosticsSummary.message === "string"
+  ) {
+    return sanitizeUiErrorMessage(checkpoint.diagnosticsSummary.message);
+  }
+
+  return null;
+}
+
+function readStatusSummary(record: IntegrationRecord) {
+  if (record.status === "ERROR") {
+    return "Integration needs reconnect or resync.";
+  }
+
+  if (record.status === "SYNC_IN_PROGRESS") {
+    return "Sync is currently running.";
+  }
+
+  if (record.status === "DISCONNECTED") {
+    return "Integration has been disconnected.";
+  }
+
+  const metadata = isJsonObject(record.platformMetadataJson)
+    ? record.platformMetadataJson
+    : null;
+  const checkpoint =
+    isJsonObject(metadata?.gmailSyncCheckpoint)
+      ? metadata.gmailSyncCheckpoint
+      : isJsonObject(metadata?.slackSyncCheckpoint)
+        ? metadata.slackSyncCheckpoint
+        : null;
+
+  if (checkpoint && typeof checkpoint.status === "string") {
+    return `Last checkpoint: ${checkpoint.status}`;
   }
 
   return null;
@@ -99,7 +147,9 @@ function toManagedIntegration(
       statusLabel: "Not connected",
       lastSyncedAt: null,
       diagnosticsSummary: null,
+      statusSummary: "Not connected.",
       isConnected: false,
+      requiresReconnect: false,
     };
   }
 
@@ -115,7 +165,10 @@ function toManagedIntegration(
     statusLabel: record.status,
     lastSyncedAt: record.lastSyncedAt,
     diagnosticsSummary: readDiagnosticsSummary(record),
+    statusSummary: readStatusSummary(record),
     isConnected: true,
+    requiresReconnect:
+      record.status === "ERROR" || record.status === "DISCONNECTED",
   };
 }
 

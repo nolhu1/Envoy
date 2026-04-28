@@ -217,6 +217,27 @@ export async function approveWorkspaceApprovalRequest(
     nextConversationState: input.nextConversationState ?? null,
   });
 
+  await publishEnvoyEvent(
+    buildEnvoyEvent({
+      eventType: ENVOY_EVENT_TYPES.APPROVAL_APPROVED,
+      workspaceId: input.workspaceId,
+      entityType: ENVOY_EVENT_ENTITY_TYPES.APPROVAL_REQUEST,
+      entityId: review.approvalRequestId,
+      source: ENVOY_EVENT_SOURCES.APPROVAL,
+      payload: {
+        approvalRequestId: review.approvalRequestId,
+        conversationId: review.conversationId,
+        draftMessageId: review.draftMessageId,
+        reviewedByUserId: review.reviewedByUserId ?? input.actorUserId,
+        metadata: {
+          provider: null,
+          conversationState: review.conversationState,
+          edited: false,
+        },
+      },
+    }),
+  );
+
   return {
     review,
     send: await sendApprovedDraftMessage({
@@ -290,6 +311,27 @@ export async function editAndApproveWorkspaceApprovalRequest(
     editedContent: input.editedContent,
     nextConversationState: input.nextConversationState ?? null,
   });
+
+  await publishEnvoyEvent(
+    buildEnvoyEvent({
+      eventType: ENVOY_EVENT_TYPES.APPROVAL_APPROVED,
+      workspaceId: input.workspaceId,
+      entityType: ENVOY_EVENT_ENTITY_TYPES.APPROVAL_REQUEST,
+      entityId: review.approvalRequestId,
+      source: ENVOY_EVENT_SOURCES.APPROVAL,
+      payload: {
+        approvalRequestId: review.approvalRequestId,
+        conversationId: review.conversationId,
+        draftMessageId: review.draftMessageId,
+        reviewedByUserId: review.reviewedByUserId ?? input.actorUserId,
+        metadata: {
+          provider: null,
+          conversationState: review.conversationState,
+          edited: true,
+        },
+      },
+    }),
+  );
 
   return {
     review,

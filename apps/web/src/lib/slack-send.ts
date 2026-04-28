@@ -27,6 +27,7 @@ import {
   ENVOY_EVENT_TYPES,
   publishEnvoyEvent,
 } from "@/lib/event-publisher";
+import { sanitizeDiagnostics } from "@/lib/security";
 
 type JsonObject = Record<string, unknown>;
 
@@ -97,6 +98,29 @@ const slackConnector = new SlackConnector();
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toRetryabilityFromDiagnostics(diagnostics: unknown) {
+  if (!isJsonObject(diagnostics)) {
+    return {
+      retryable: false,
+    };
+  }
+
+  const retryable =
+    diagnostics.retryable === true ||
+    diagnostics.errorCode === "rate_limited" ||
+    (typeof diagnostics.error === "string" && diagnostics.error.includes("429"));
+  const retryAfterSeconds =
+    typeof diagnostics.retryAfterSeconds === "number" &&
+    Number.isFinite(diagnostics.retryAfterSeconds)
+      ? diagnostics.retryAfterSeconds
+      : null;
+
+  return {
+    retryable,
+    retryAfterSeconds,
+  };
 }
 
 async function getSendableMessage(input: {
@@ -373,9 +397,7 @@ export async function sendWorkspaceSlackReply(input: {
           sendStatus: sendResult.status,
           providerAcceptedAt: sendResult.sentAt ?? null,
           deliveryState: sendResult.status === "FAILED" ? "FAILED" : "SENT",
-          retryability: {
-            retryable: false,
-          },
+          retryability: toRetryabilityFromDiagnostics(sendResult.diagnosticsJson),
           diagnostics: sendResult.diagnosticsJson
             ? [
                 {
@@ -383,7 +405,7 @@ export async function sendWorkspaceSlackReply(input: {
                     sendResult.status === "FAILED"
                       ? "Slack send failed."
                       : "Slack send completed.",
-                  details: sendResult.diagnosticsJson,
+                  details: sanitizeDiagnostics(sendResult.diagnosticsJson) as never,
                 } satisfies OutboundDiagnostic,
               ]
             : undefined,

@@ -29,6 +29,7 @@ import {
   ENVOY_EVENT_TYPES,
   publishEnvoyEvent,
 } from "@/lib/event-publisher";
+import { sanitizeDiagnostics } from "@/lib/security";
 
 type JsonObject = Record<string, unknown>;
 
@@ -105,6 +106,29 @@ const gmailConnector = new GmailConnector();
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toRetryabilityFromDiagnostics(diagnostics: unknown) {
+  if (!isJsonObject(diagnostics)) {
+    return {
+      retryable: false,
+    };
+  }
+
+  const retryable =
+    diagnostics.retryable === true ||
+    diagnostics.errorCode === "rate_limited" ||
+    (typeof diagnostics.error === "string" && diagnostics.error.includes("429"));
+  const retryAfterSeconds =
+    typeof diagnostics.retryAfterSeconds === "number" &&
+    Number.isFinite(diagnostics.retryAfterSeconds)
+      ? diagnostics.retryAfterSeconds
+      : null;
+
+  return {
+    retryable,
+    retryAfterSeconds,
+  };
 }
 
 function mergeJson(
@@ -584,26 +608,24 @@ export async function sendWorkspaceGmailReply(input: {
           sendEnvelope.replyToExternalMessageId ?? null,
       });
 
-      return {
-        sendResult,
-        sendStatus: sendResult.status,
-        providerAcceptedAt: sendResult.sentAt ?? null,
-        deliveryState: sendResult.status === "FAILED" ? "FAILED" : "SENT",
-        retryability: {
-          retryable: false,
-        },
-        diagnostics: sendResult.diagnosticsJson
-          ? [
-              {
-                message:
-                  sendResult.status === "FAILED"
-                    ? "Gmail send failed."
-                    : "Gmail send completed.",
-                details: sendResult.diagnosticsJson,
-              } satisfies OutboundDiagnostic,
-            ]
-          : undefined,
-      } satisfies ProviderSendExecutionResult;
+        return {
+          sendResult,
+          sendStatus: sendResult.status,
+          providerAcceptedAt: sendResult.sentAt ?? null,
+          deliveryState: sendResult.status === "FAILED" ? "FAILED" : "SENT",
+          retryability: toRetryabilityFromDiagnostics(sendResult.diagnosticsJson),
+          diagnostics: sendResult.diagnosticsJson
+            ? [
+                {
+                  message:
+                    sendResult.status === "FAILED"
+                      ? "Gmail send failed."
+                      : "Gmail send completed.",
+                  details: sanitizeDiagnostics(sendResult.diagnosticsJson) as never,
+                } satisfies OutboundDiagnostic,
+              ]
+            : undefined,
+        } satisfies ProviderSendExecutionResult;
     };
 
     let firstAttempt = await attemptSend(sendEnvelope.connectorContext);
