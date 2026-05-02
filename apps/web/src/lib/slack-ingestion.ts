@@ -338,10 +338,6 @@ export async function syncWorkspaceSlackIntegration(input: {
       (total, result) => total + result.insertedCounts.participants,
       0,
     );
-    const conversationCount = results.reduce(
-      (total, result) => total + result.insertedCounts.conversations,
-      0,
-    );
     const messageCount = results.reduce(
       (total, result) => total + result.insertedCounts.messages,
       0,

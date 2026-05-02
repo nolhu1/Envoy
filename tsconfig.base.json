@@ -10,7 +10,8 @@
       "@envoy/connectors": ["packages/connectors/src"],
       "@envoy/db": ["packages/db/src"],
       "@envoy/types": ["packages/types/src"],
-      "@envoy/events": ["packages/events/src"]
+      "@envoy/events": ["packages/events/src"],
+      "@envoy/ui": ["packages/ui/src"]
     }
   }
 }

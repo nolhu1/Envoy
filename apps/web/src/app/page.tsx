@@ -1,12 +1,27 @@
-import Link from "next/link";
+import {
+  ActiveFilters,
+  Badge,
+  Checkbox,
+  FilterBar,
+  FilterField,
+  Input,
+  PageContainer,
+  PageHeader,
+  QueueContainer,
+  QueueEmpty,
+  QueueTable,
+  Select,
+  StatusBadge,
+} from "@envoy/ui";
 
-import { SignOutButton } from "@/components/sign-out-button";
+import { ProductShell } from "@/components/product-shell";
 import { requireAppAuthContext } from "@/lib/app-auth";
-import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import {
   getCurrentWorkspaceInboxAssigneeOptions,
   getCurrentWorkspaceInboxRowsWithFilters,
   readInboxFilters,
+  type InboxAssigneeOption,
+  type InboxRow,
 } from "@/lib/inbox";
 
 export const dynamic = "force-dynamic";
@@ -15,336 +30,255 @@ type HomePageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function HomePage({ searchParams }: HomePageProps) {
-  const authContext = await requireAppAuthContext();
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const filters = readInboxFilters(resolvedSearchParams);
-  const [inboxRows, assigneeOptions] = await Promise.all([
-    getCurrentWorkspaceInboxRowsWithFilters(filters),
-    getCurrentWorkspaceInboxAssigneeOptions(),
-  ]);
-  const canApproveDrafts = hasPermission(
-    authContext.role,
-    PERMISSIONS.APPROVE_DRAFTS,
+function formatTimestamp(value: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(value);
+}
+
+function hasActiveFilters(filters: ReturnType<typeof readInboxFilters>) {
+  return (
+    filters.query !== "" ||
+    filters.platform !== "ALL" ||
+    filters.state !== "ALL" ||
+    filters.assigneeId !== "ALL" ||
+    filters.agent !== "any" ||
+    filters.awaitingApproval
   );
+}
 
-  function formatRelativeActivity(value: Date) {
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
+function buildActiveFilters(
+  filters: ReturnType<typeof readInboxFilters>,
+  assigneeOptions: InboxAssigneeOption[],
+) {
+  const activeFilters = [];
+  const assignee = assigneeOptions.find((option) => option.id === filters.assigneeId);
 
-    return formatter.format(value);
+  if (filters.query) {
+    activeFilters.push({ key: "q", label: "Search", value: filters.query });
   }
 
+  if (filters.platform !== "ALL") {
+    activeFilters.push({
+      key: "platform",
+      label: "Platform",
+      value: filters.platform === "EMAIL" ? "Gmail" : "Slack",
+    });
+  }
+
+  if (filters.state !== "ALL") {
+    activeFilters.push({
+      key: "state",
+      label: "State",
+      value: filters.state.replaceAll("_", " ").toLowerCase(),
+    });
+  }
+
+  if (filters.agent !== "any") {
+    activeFilters.push({
+      key: "agent",
+      label: "Assignment",
+      value: filters.agent === "has" ? "Has agent" : "No agent",
+    });
+  }
+
+  if (filters.assigneeId !== "ALL") {
+    activeFilters.push({
+      key: "assignee",
+      label: "Assignee",
+      value: assignee?.label ?? filters.assigneeId,
+    });
+  }
+
+  if (filters.awaitingApproval) {
+    activeFilters.push({
+      key: "awaitingApproval",
+      label: "Approval",
+      value: "Awaiting approval",
+    });
+  }
+
+  return activeFilters;
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  await requireAppAuthContext();
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const filters = readInboxFilters(resolvedSearchParams);
+  const [inboxRows, assigneeOptions]: [InboxRow[], InboxAssigneeOption[]] =
+    await Promise.all([
+      getCurrentWorkspaceInboxRowsWithFilters(filters),
+      getCurrentWorkspaceInboxAssigneeOptions(),
+    ]);
+  const activeFilters = buildActiveFilters(filters, assigneeOptions);
+  const filtered = hasActiveFilters(filters);
+
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-10">
-      <div className="mx-auto max-w-5xl">
-        <header className="flex flex-col gap-4 rounded-[28px] bg-slate-950 px-8 py-8 text-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">
-              Envoy
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-              Unified Inbox
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              Canonical conversations from Gmail and Slack appear together here,
-              using the shared inbox model rather than provider APIs.
-            </p>
-          </div>
+    <ProductShell activeSection="inbox">
+      <PageContainer width="wide">
+        <PageHeader
+          title="Inbox"
+          description="Triage canonical Gmail and Slack conversations across the workspace."
+        />
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/profile"
-              className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
-            >
-              Profile
-            </Link>
-            <Link
-              href="/members"
-              className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
-            >
-              Members
-            </Link>
-            <Link
-              href="/settings/workspace"
-              className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
-            >
-              Workspace settings
-            </Link>
-            {canApproveDrafts ? (
-              <Link
-                href="/approvals"
-                className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
-              >
-                Approvals
-              </Link>
-            ) : null}
-            <SignOutButton />
-          </div>
-        </header>
-
-        <section className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-          <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-              Email
-            </p>
-            <p className="mt-3 text-lg font-medium text-slate-950">
-              {authContext.email}
-            </p>
-          </article>
-
-          <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-              User ID
-            </p>
-            <p className="mt-3 break-all text-sm font-medium text-slate-950">
-              {authContext.userId}
-            </p>
-          </article>
-
-          <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-              Workspace ID
-            </p>
-            <p className="mt-3 break-all text-sm font-medium text-slate-950">
-              {authContext.workspaceId}
-            </p>
-          </article>
-
-          <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-              Role
-            </p>
-            <p className="mt-3 text-lg font-medium text-slate-950">
-              {authContext.role}
-            </p>
-          </article>
-        </section>
-
-        <section className="mt-8 rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                Workspace Queue
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                Conversations
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                {inboxRows.length === 0
-                  ? "No canonical conversations have been ingested yet."
-                  : `${inboxRows.length} conversations across Gmail and Slack.`}
-              </p>
-            </div>
-
-            <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700">
-              {authContext.role}
-            </div>
-          </div>
-
-          <form className="mt-6 grid gap-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-6">
-            <label className="flex flex-col gap-2 text-sm text-slate-700 md:col-span-2 xl:col-span-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Search
-              </span>
-              <input
-                type="search"
-                name="q"
-                defaultValue={filters.query}
-                placeholder="Search subject, participants, or message text"
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
-              />
-            </label>
-
-            <label className="flex flex-col gap-2 text-sm text-slate-700">
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Platform
-              </span>
-              <select
-                name="platform"
-                defaultValue={filters.platform}
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              >
-                <option value="ALL">All platforms</option>
-                <option value="EMAIL">Gmail</option>
-                <option value="SLACK">Slack</option>
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-2 text-sm text-slate-700">
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                State
-              </span>
-              <select
-                name="state"
-                defaultValue={filters.state}
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              >
-                <option value="ALL">All states</option>
-                <option value="UNASSIGNED">Unassigned</option>
-                <option value="ACTIVE">Active</option>
-                <option value="WAITING">Waiting</option>
-                <option value="FOLLOW_UP_DUE">Follow up due</option>
-                <option value="AWAITING_APPROVAL">Awaiting approval</option>
-                <option value="ESCALATED">Escalated</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="CLOSED">Closed</option>
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-2 text-sm text-slate-700">
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Assignment
-              </span>
-              <select
-                name="agent"
-                defaultValue={filters.agent}
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              >
-                <option value="any">Any assignment</option>
-                <option value="has">Has agent</option>
-                <option value="none">No agent</option>
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-2 text-sm text-slate-700">
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Assignee
-              </span>
-              <select
-                name="assignee"
-                defaultValue={filters.assigneeId}
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              >
-                <option value="ALL">Any assignee</option>
-                {assigneeOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 xl:col-span-1">
-              <input
-                type="checkbox"
-                name="awaitingApproval"
-                value="true"
-                defaultChecked={filters.awaitingApproval}
-                className="h-4 w-4 rounded border-slate-300 text-slate-950"
-              />
-              Awaiting approval
-            </label>
-
-            <div className="flex items-center gap-3 xl:justify-end">
-              <button
-                type="submit"
-                className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-              >
-                Apply filters
-              </button>
-              <Link
-                href="/"
-                className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-white"
-              >
-                Reset
-              </Link>
-            </div>
-          </form>
-
-          {inboxRows.length === 0 ? (
-            <div className="mt-6 rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-sm text-slate-600">
-              No conversations match the current search and filters. Adjust the
-              filters or run sync from workspace settings.
-            </div>
-          ) : (
-            <div className="mt-6 overflow-hidden rounded-[24px] border border-slate-200">
-              <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 md:grid">
-                <span>Conversation</span>
-                <span>Participants</span>
-                <span>Assignment</span>
-                <span>Activity</span>
+        <QueueContainer
+          title="Conversations"
+          description={
+            inboxRows.length === 0
+              ? filtered
+                ? "No conversations match the active filters."
+                : "No conversations have been ingested yet."
+              : `${inboxRows.length} conversations`
+          }
+          filters={
+            <FilterBar resetHref="/" mobileMode="drawer">
+              <FilterField label="Search">
+                <Input
+                  type="search"
+                  name="q"
+                  defaultValue={filters.query}
+                  placeholder="Subject, participant, or message text"
+                />
+              </FilterField>
+              <FilterField label="Platform">
+                <Select
+                  name="platform"
+                  defaultValue={filters.platform}
+                  options={[
+                    { value: "ALL", label: "All platforms" },
+                    { value: "EMAIL", label: "Gmail" },
+                    { value: "SLACK", label: "Slack" },
+                  ]}
+                />
+              </FilterField>
+              <FilterField label="State">
+                <Select
+                  name="state"
+                  defaultValue={filters.state}
+                  options={[
+                    { value: "ALL", label: "All states" },
+                    { value: "UNASSIGNED", label: "Unassigned" },
+                    { value: "ACTIVE", label: "Active" },
+                    { value: "WAITING", label: "Waiting" },
+                    { value: "FOLLOW_UP_DUE", label: "Follow-up due" },
+                    { value: "AWAITING_APPROVAL", label: "Awaiting approval" },
+                    { value: "ESCALATED", label: "Escalated" },
+                    { value: "COMPLETED", label: "Completed" },
+                    { value: "CLOSED", label: "Closed" },
+                  ]}
+                />
+              </FilterField>
+              <FilterField label="Assignment">
+                <Select
+                  name="agent"
+                  defaultValue={filters.agent}
+                  options={[
+                    { value: "any", label: "Any assignment" },
+                    { value: "has", label: "Has agent" },
+                    { value: "none", label: "No agent" },
+                  ]}
+                />
+              </FilterField>
+              <FilterField label="Assignee">
+                <Select
+                  name="assignee"
+                  defaultValue={filters.assigneeId}
+                  options={[
+                    { value: "ALL", label: "Any assignee" },
+                    ...assigneeOptions.map((option) => ({
+                      value: option.id,
+                      label: option.label,
+                    })),
+                  ]}
+                />
+              </FilterField>
+              <div className="flex items-end">
+                <Checkbox
+                  name="awaitingApproval"
+                  value="true"
+                  label="Awaiting approval"
+                  defaultChecked={filters.awaitingApproval}
+                />
               </div>
-
-              <div className="divide-y divide-slate-200">
-                {inboxRows.map((row) => (
-                  <Link
-                    key={row.conversationId}
-                    href={`/conversations/${row.conversationId}`}
-                    className="grid gap-4 px-5 py-5 transition hover:bg-slate-50 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-start"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                            row.platform === "SLACK"
-                              ? "bg-cyan-100 text-cyan-900"
-                              : "bg-emerald-100 text-emerald-900"
-                          }`}
-                        >
-                          {row.platform === "SLACK" ? "Slack" : "Gmail"}
-                        </span>
-                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
-                          {row.conversationState.replaceAll("_", " ")}
-                        </span>
-                        {row.hasSendFailure ? (
-                          <span className="inline-flex rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-medium text-rose-800">
-                            Send failed
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-3 truncate text-base font-semibold text-slate-950">
-                        {row.title}
-                      </p>
-                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">
-                        {row.lastMessagePreview}
-                      </p>
+            </FilterBar>
+          }
+          activeFilters={<ActiveFilters filters={activeFilters} clearHref="/" />}
+        >
+          <QueueTable
+            rows={inboxRows}
+            getRowId={(row) => row.conversationId}
+            getRowHref={(row) => `/conversations/${row.conversationId}`}
+            gridTemplateColumns="minmax(18rem,2fr) minmax(11rem,1fr) minmax(12rem,1fr) minmax(10rem,0.9fr)"
+            emptyState={
+              <QueueEmpty
+                variant={filtered ? "filtered" : "firstRun"}
+                clearFiltersHref={filtered ? "/" : undefined}
+                title={
+                  filtered ? "No matching conversations" : "No conversations yet"
+                }
+                description={
+                  filtered
+                    ? "Adjust the filters or clear them to return to the full queue."
+                    : "Run a connector sync from integration settings to populate the inbox."
+                }
+              />
+            }
+            columns={[
+              {
+                id: "conversation",
+                header: "Conversation",
+                mobileLabel: "Conversation",
+                cell: (row) => (
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="platform">
+                        {row.platform === "SLACK" ? "Slack" : "Gmail"}
+                      </Badge>
+                      <StatusBadge
+                        domain="conversation"
+                        status={row.conversationState}
+                      />
+                      {row.hasSendFailure ? (
+                        <StatusBadge domain="message" status="FAILED" />
+                      ) : null}
                     </div>
-
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 md:hidden">
-                        Participants
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-slate-700 md:mt-0">
-                        {row.participantSummary}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 md:hidden">
-                        Assignment
-                      </p>
-                      <span
-                        className={`mt-1 inline-flex rounded-full px-3 py-1.5 text-sm font-medium md:mt-0 ${
-                          row.assignedAgentLabel
-                            ? "bg-amber-100 text-amber-900"
-                            : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {row.assignedAgentLabel ?? "Unassigned"}
-                      </span>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 md:hidden">
-                        Last activity
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-slate-700 md:mt-0">
-                        {formatRelativeActivity(row.lastActivityAt)}
-                      </p>
-                      <p className="mt-1 break-all text-xs text-slate-500">
-                        {row.conversationId}
-                      </p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+                    <p className="mt-2 truncate font-semibold text-slate-950">
+                      {row.title}
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-600">
+                      {row.lastMessagePreview}
+                    </p>
+                  </div>
+                ),
+              },
+              {
+                id: "participants",
+                header: "Participants",
+                mobileLabel: "Participants",
+                cell: (row) => row.participantSummary,
+              },
+              {
+                id: "assignment",
+                header: "Assignment",
+                mobileLabel: "Assignment",
+                cell: (row) =>
+                  row.assignedAgentLabel ? (
+                    <span className="line-clamp-2">{row.assignedAgentLabel}</span>
+                  ) : (
+                    <Badge variant="neutral">Unassigned</Badge>
+                  ),
+              },
+              {
+                id: "activity",
+                header: "Last activity",
+                mobileLabel: "Last activity",
+                cell: (row) => formatTimestamp(row.lastActivityAt),
+              },
+            ]}
+          />
+        </QueueContainer>
+      </PageContainer>
+    </ProductShell>
   );
 }

@@ -1,6 +1,24 @@
-import Link from "next/link";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  FormField,
+  FormSection,
+  MetadataList,
+  PageContainer,
+  PageHeader,
+  Panel,
+  PermissionState,
+  ReconnectPrompt,
+  SectionHeader,
+  Select,
+  StatusBadge,
+  SubmitButton,
+} from "@envoy/ui";
 import { getPrisma } from "@envoy/db";
 
+import { ProductShell } from "@/components/product-shell";
 import {
   hasPermission,
   PERMISSIONS,
@@ -24,10 +42,53 @@ type WorkspaceSettingsPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-function readSearchParam(
-  value: string | string[] | undefined,
-) {
+function readSearchParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function formatDateTime(value: Date | null) {
+  if (!value) {
+    return "Never";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(value);
+}
+
+function formatDurationMs(value: number | null) {
+  if (value == null || !Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  if (value < 1_000) {
+    return `${Math.round(value)} ms`;
+  }
+
+  if (value < 60_000) {
+    return `${(value / 1_000).toFixed(1)} sec`;
+  }
+
+  return `${(value / 60_000).toFixed(1)} min`;
+}
+
+type MetricPanelProps = {
+  label: string;
+  value: string | number;
+  description: string;
+};
+
+function MetricPanel({ label, value, description }: MetricPanelProps) {
+  return (
+    <Panel variant="subtle" className="space-y-1">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="text-2xl font-semibold tabular-nums text-slate-950">
+        {value}
+      </p>
+      <p className="text-xs leading-5 text-slate-600">{description}</p>
+    </Panel>
+  );
 }
 
 export default async function WorkspaceSettingsPage({
@@ -118,32 +179,23 @@ export default async function WorkspaceSettingsPage({
     resolvedSearchParams?.proposedMessageText,
   );
 
-  function formatDateTime(value: Date | null) {
-    if (!value) {
-      return "Never";
-    }
+  const conversationOptions = devApprovalConversations.map((conversation) => {
+    const fallbackLabel =
+      conversation.participants
+        .map(
+          (participant) =>
+            participant.displayName || participant.email || participant.handle,
+        )
+        .filter(Boolean)
+        .join(", ") || "Untitled conversation";
 
-    return new Intl.DateTimeFormat("en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(value);
-  }
-
-  function formatDurationMs(value: number | null) {
-    if (value == null || !Number.isFinite(value)) {
-      return "n/a";
-    }
-
-    if (value < 1_000) {
-      return `${Math.round(value)} ms`;
-    }
-
-    if (value < 60_000) {
-      return `${(value / 1_000).toFixed(1)} sec`;
-    }
-
-    return `${(value / 60_000).toFixed(1)} min`;
-  }
+    return {
+      value: conversation.id,
+      label: `${conversation.platform === "EMAIL" ? "Gmail" : "Slack"} - ${
+        conversation.subject?.trim() || fallbackLabel
+      }`,
+    };
+  });
 
   function renderIntegrationBanner() {
     if (
@@ -152,10 +204,10 @@ export default async function WorkspaceSettingsPage({
       integrationName === "gmail"
     ) {
       return (
-        <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
-          Gmail sync completed. Threads fetched: {syncThreadCount ?? "0"}.
-          Messages written: {syncMessageCount ?? "0"}.
-        </section>
+        <Alert severity="success" title="Gmail sync completed">
+          Threads fetched: {syncThreadCount ?? "0"}. Messages written:{" "}
+          {syncMessageCount ?? "0"}.
+        </Alert>
       );
     }
 
@@ -165,10 +217,10 @@ export default async function WorkspaceSettingsPage({
       integrationName === "slack"
     ) {
       return (
-        <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
-          Slack sync completed. DMs fetched: {syncDmConversationCount ?? "0"}.
-          Messages written: {syncMessageCount ?? "0"}.
-        </section>
+        <Alert severity="success" title="Slack sync completed">
+          DMs fetched: {syncDmConversationCount ?? "0"}. Messages written:{" "}
+          {syncMessageCount ?? "0"}.
+        </Alert>
       );
     }
 
@@ -178,9 +230,9 @@ export default async function WorkspaceSettingsPage({
       integrationName === "approval-test"
     ) {
       return (
-        <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+        <Alert severity="success" title="Test approval created">
           Temporary test approval request created successfully.
-        </section>
+        </Alert>
       );
     }
 
@@ -190,9 +242,9 @@ export default async function WorkspaceSettingsPage({
       integrationName === "draft-preview"
     ) {
       return (
-        <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
+        <Alert severity="success" title="Draft preview generated">
           Temporary draft preview generated successfully.
-        </section>
+        </Alert>
       );
     }
 
@@ -202,9 +254,10 @@ export default async function WorkspaceSettingsPage({
       integrationName
     ) {
       return (
-        <section className="mb-6 rounded-[24px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-900 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
-          {integrationName === "gmail" ? "Gmail" : "Slack"} disconnected successfully.
-        </section>
+        <Alert severity="neutral" title="Integration disconnected">
+          {integrationName === "gmail" ? "Gmail" : "Slack"} disconnected
+          successfully.
+        </Alert>
       );
     }
 
@@ -213,9 +266,10 @@ export default async function WorkspaceSettingsPage({
       (integrationName === "gmail" || integrationName === "slack")
     ) {
       return (
-        <section className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
-          {integrationName === "gmail" ? "Gmail" : "Slack"} connected successfully.
-        </section>
+        <Alert severity="success" title="Integration connected">
+          {integrationName === "gmail" ? "Gmail" : "Slack"} connected
+          successfully.
+        </Alert>
       );
     }
 
@@ -228,16 +282,22 @@ export default async function WorkspaceSettingsPage({
         integrationName === "draft-preview")
     ) {
       return (
-        <section className="mb-6 rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
-          {integrationAction === "sync"
-            ? `${integrationName === "gmail" ? "Gmail" : "Slack"} sync failed`
-            : integrationName === "approval-test"
-              ? "Test approval request creation failed"
-              : integrationName === "draft-preview"
-                ? "Draft preview generation failed"
-              : `${integrationName === "gmail" ? "Gmail" : "Slack"} connect failed`}
-          : {integrationMessage}
-        </section>
+        <Alert
+          severity="critical"
+          title={
+            integrationAction === "sync"
+              ? `${integrationName === "gmail" ? "Gmail" : "Slack"} sync failed`
+              : integrationName === "approval-test"
+                ? "Test approval request creation failed"
+                : integrationName === "draft-preview"
+                  ? "Draft preview generation failed"
+                  : `${
+                      integrationName === "gmail" ? "Gmail" : "Slack"
+                    } connect failed`
+          }
+        >
+          {integrationMessage}
+        </Alert>
       );
     }
 
@@ -245,507 +305,360 @@ export default async function WorkspaceSettingsPage({
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-10">
-      <div className="mx-auto max-w-5xl">
-        {renderIntegrationBanner()}
+    <ProductShell activeSection="settings">
+      <PageContainer width="wide">
+        <PageHeader
+          title="Workspace settings"
+          description="Manage workspace metadata, connector operations, and administrative diagnostics."
+        />
 
-        <header className="rounded-[28px] bg-slate-950 px-8 py-8 text-white shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
-          <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">
-            Workspace Settings
-          </p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-            Workspace shell
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-            Server-rendered workspace context for future settings, invite flows,
-            and tenancy-aware pages.
-          </p>
+        <div className="flex flex-col gap-6">
+          {renderIntegrationBanner()}
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link
-              href="/"
-              className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
-            >
-              Home
-            </Link>
-            <Link
-              href="/profile"
-              className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
-            >
-              Profile
-            </Link>
-            <Link
-              href="/members"
-              className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
-            >
-              Members
-            </Link>
-            {canViewAuditLogs ? (
-              <Link
-                href="/settings/audit"
-                className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white transition hover:border-white/40"
-              >
-                Audit logs
-              </Link>
-            ) : null}
-          </div>
-        </header>
+          <section className="order-3 space-y-4">
+            <SectionHeader
+              title="Workspace metadata"
+              description="Workspace identity and current operator context."
+            />
 
-        {workspace ? (
-          <section className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-5">
-            <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)] xl:col-span-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                Workspace Name
-              </p>
-              <p className="mt-3 text-xl font-medium text-slate-950">
-                {workspace.name}
-              </p>
-            </article>
-
-            <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)] xl:col-span-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                Workspace ID
-              </p>
-              <p className="mt-3 break-all text-sm font-medium text-slate-950">
-                {workspace.id}
-              </p>
-            </article>
-
-            <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                Created At
-              </p>
-              <p className="mt-3 text-sm font-medium text-slate-950">
-                {workspace.createdAt
-                  ? new Intl.DateTimeFormat("en-US", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(workspace.createdAt)
-                  : "Unavailable"}
-              </p>
-            </article>
-
-            <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)] xl:col-span-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                Current User Email
-              </p>
-              <p className="mt-3 break-all text-sm font-medium text-slate-950">
-                {authContext.email}
-              </p>
-            </article>
-
-            <article className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                Current User Role
-              </p>
-              <p className="mt-3 text-lg font-medium text-slate-950">
-                {authContext.role}
-              </p>
-            </article>
+            {workspace ? (
+              <MetadataList
+                items={[
+                  { label: "Workspace name", value: workspace.name },
+                  {
+                    label: "Created",
+                    value: formatDateTime(workspace.createdAt),
+                  },
+                  { label: "Current user", value: authContext.email },
+                  { label: "Current role", value: authContext.role },
+                  {
+                    label: "Workspace ID",
+                    value: workspace.id,
+                    copyValue: workspace.id,
+                  },
+                ]}
+              />
+            ) : (
+              <Alert severity="warning" title="Workspace unavailable">
+                The current workspace could not be loaded for this session. The
+                authenticated user context is still available, but the workspace
+                record lookup returned no result.
+              </Alert>
+            )}
           </section>
-        ) : (
-        <section className="mt-8 rounded-[24px] border border-amber-200 bg-amber-50 p-6 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-700">
-              Workspace Unavailable
-            </p>
-            <p className="mt-3 text-sm leading-6 text-amber-900">
-              The current workspace could not be loaded for this session. The
-              authenticated user context is still available, but the workspace
-              record lookup returned no result.
-            </p>
-          </section>
-        )}
 
-        {canUseDevApprovalHelper ? (
-          <section className="mt-8 rounded-[24px] border border-amber-200 bg-amber-50 p-6 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-700">
-              Dev Only
-            </p>
-            <h2 className="mt-3 text-xl font-semibold text-amber-950">
-              Temporary approval seed helper
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-amber-900">
-              TODO(remove-after-testing): create a temporary AI-style draft and
-              approval request for an existing Gmail or Slack conversation so
-              Phase J approval-to-send can be tested before drafting UI exists.
-            </p>
-            <form action={createTestApprovalRequestAction} className="mt-5 space-y-4">
-              <label className="flex flex-col gap-2 text-sm text-amber-950">
-                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
-                  Conversation
-                </span>
-                <select
-                  name="conversationId"
-                  className="rounded-2xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-900"
-                  defaultValue=""
-                >
-                  <option value="">
-                    Auto-pick most recent conversation
-                  </option>
-                  {devApprovalConversations.map((conversation) => {
-                    const fallbackLabel =
-                      conversation.participants
-                        .map(
-                          (participant) =>
-                            participant.displayName ||
-                            participant.email ||
-                            participant.handle,
-                        )
-                        .filter(Boolean)
-                        .join(", ") || "Untitled conversation";
+          <section className="order-1 space-y-4">
+            <SectionHeader
+              title="Integrations"
+              description="Connect, reconnect, sync, and disconnect the canonical Gmail and Slack integrations."
+            />
 
-                    return (
-                      <option key={conversation.id} value={conversation.id}>
-                        {conversation.platform === "EMAIL" ? "Gmail" : "Slack"} ·{" "}
-                        {conversation.subject?.trim() || fallbackLabel}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-
-              <button
-                type="submit"
-                className="inline-flex rounded-full border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-950 transition hover:border-amber-400 hover:bg-amber-100"
-              >
-                Create test approval request
-              </button>
-            </form>
-
-            <div className="mt-6 border-t border-amber-200 pt-6">
-              <h3 className="text-lg font-semibold text-amber-950">
-                Temporary draft preview helper
-              </h3>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-amber-900">
-                TODO(remove-after-testing): run planner + OpenAI draft generation for
-                the selected conversation and show a no-save preview result.
-              </p>
-              <form action={previewDraftGeneratorAction} className="mt-4 space-y-4">
-                <label className="flex flex-col gap-2 text-sm text-amber-950">
-                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
-                    Conversation
-                  </span>
-                  <select
-                    name="conversationId"
-                    className="rounded-2xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-900"
-                    defaultValue=""
-                  >
-                    <option value="">
-                      Auto-pick most recent conversation
-                    </option>
-                    {devApprovalConversations.map((conversation) => {
-                      const fallbackLabel =
-                        conversation.participants
-                          .map(
-                            (participant) =>
-                              participant.displayName ||
-                              participant.email ||
-                              participant.handle,
-                          )
-                          .filter(Boolean)
-                          .join(", ") || "Untitled conversation";
-
-                      return (
-                        <option key={conversation.id} value={conversation.id}>
-                          {conversation.platform === "EMAIL" ? "Gmail" : "Slack"} ·{" "}
-                          {conversation.subject?.trim() || fallbackLabel}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
-
-                <button
-                  type="submit"
-                  className="inline-flex rounded-full border border-cyan-300 bg-white px-4 py-2 text-sm font-medium text-cyan-950 transition hover:border-cyan-400 hover:bg-cyan-50"
-                >
-                  Preview AI draft (no save)
-                </button>
-              </form>
-            </div>
-
-            {integrationName === "draft-preview" && integrationAction === "preview" ? (
-              <div className="mt-6 rounded-[24px] border border-cyan-200 bg-white p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">
-                  Draft Preview Result
-                </p>
-                <div className="mt-3 grid gap-2 text-sm text-slate-800">
-                  <p>
-                    <span className="font-semibold text-slate-950">Conversation:</span>{" "}
-                    {previewConversationId ?? "Unavailable"}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-slate-950">Planner action:</span>{" "}
-                    {previewPlannerAction ?? "Unavailable"} ({previewPlannerConfidence ?? "n/a"})
-                  </p>
-                  <p>
-                    <span className="font-semibold text-slate-950">Generation confidence:</span>{" "}
-                    {previewGenerationConfidence ?? "n/a"}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-slate-950">Suggested state:</span>{" "}
-                    {previewSuggestedState || "none"}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-slate-950">Extracted keys:</span>{" "}
-                    {previewExtractedKeys ?? "none"}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-slate-950">Planner rationale:</span>{" "}
-                    {previewPlannerRationale ?? "Unavailable"}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-slate-950">Generation rationale:</span>{" "}
-                    {previewGenerationRationale ?? "Unavailable"}
-                  </p>
-                </div>
-                <div className="mt-4 rounded-[18px] border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Proposed Message Text
-                  </p>
-                  <pre className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-900">
-                    {previewMessageText ?? "No proposed text available."}
-                  </pre>
-                </div>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        {canManageIntegrations ? (
-          <section className="mt-8 rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-              Integrations
-            </p>
-            <h2 className="mt-3 text-xl font-semibold text-slate-950">
-              Integration management
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
-              Connect, review, resync, and disconnect the canonical Gmail and
-              Slack integrations for this workspace.
-            </p>
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              {managedIntegrations?.map((integration) => (
-                <article
-                  key={integration.platform}
-                  className="rounded-[24px] border border-slate-200 bg-slate-50 p-5"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        {integration.provider === "gmail" ? "Gmail" : "Slack"}
-                      </p>
-                      <h3 className="mt-2 text-lg font-semibold text-slate-950">
-                        {integration.displayName}
-                      </h3>
+            {canManageIntegrations ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                {managedIntegrations?.map((integration) => (
+                  <Panel key={integration.platform} className="space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <Badge variant="platform">
+                          {integration.provider === "gmail" ? "Gmail" : "Slack"}
+                        </Badge>
+                        <h2 className="mt-2 break-all text-lg font-semibold text-slate-950">
+                          {integration.displayName}
+                        </h2>
+                      </div>
+                      <StatusBadge
+                        className="self-start"
+                        domain="integration"
+                        status={integration.status ?? "DISCONNECTED"}
+                        labelOverride={integration.statusLabel}
+                      />
                     </div>
 
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] ${
-                        integration.status === "CONNECTED"
-                          ? "bg-emerald-100 text-emerald-900"
-                          : integration.status === "ERROR"
-                            ? "bg-rose-100 text-rose-900"
-                            : integration.status === "SYNC_IN_PROGRESS"
-                              ? "bg-amber-100 text-amber-900"
-                              : integration.status === "PENDING"
-                                ? "bg-slate-200 text-slate-800"
-                                : "bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {integration.statusLabel}
-                    </span>
-                  </div>
+                    <MetadataList
+                      items={[
+                        { label: "Platform", value: integration.platform },
+                        {
+                          label: "Last synced",
+                          value: formatDateTime(integration.lastSyncedAt),
+                        },
+                        {
+                          label: "Diagnostics",
+                          value:
+                            integration.diagnosticsSummary ??
+                            "No diagnostics available.",
+                        },
+                        {
+                          label: "Status detail",
+                          value:
+                            integration.statusSummary ??
+                            "No additional status detail.",
+                        },
+                      ]}
+                    />
 
-                  <dl className="mt-4 space-y-3 text-sm text-slate-700">
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        Platform
-                      </dt>
-                      <dd className="mt-1">{integration.platform}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        Last synced
-                      </dt>
-                      <dd className="mt-1">{formatDateTime(integration.lastSyncedAt)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        Summary
-                      </dt>
-                      <dd className="mt-1">
-                        {integration.diagnosticsSummary ?? "No diagnostics available."}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        Status detail
-                      </dt>
-                      <dd className="mt-1">
-                        {integration.statusSummary ?? "No additional status detail."}
-                      </dd>
-                    </div>
-                  </dl>
-
-                  {integration.requiresReconnect ? (
-                    <div className="mt-4 rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                      Integration requires reconnect before reliable sync/send operations.
-                    </div>
-                  ) : null}
-
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    {integration.provider === "gmail" ? (
-                      <form action={startGmailConnectAction}>
-                        <button
-                          type="submit"
-                          className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-                        >
-                          {integration.isConnected ? "Reconnect Gmail" : "Connect Gmail"}
-                        </button>
-                      </form>
-                    ) : (
-                      <form action={startSlackConnectAction}>
-                        <button
-                          type="submit"
-                          className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-white"
-                        >
-                          {integration.isConnected ? "Reconnect Slack" : "Connect Slack"}
-                        </button>
-                      </form>
-                    )}
-
-                    {integration.integrationId ? (
-                      <>
-                        <form action={syncIntegrationAction}>
-                          <input
-                            type="hidden"
-                            name="integrationId"
-                            value={integration.integrationId}
-                          />
-                          <button
-                            type="submit"
-                            className="inline-flex rounded-full border border-cyan-300 px-4 py-2 text-sm font-medium text-cyan-950 transition hover:border-cyan-400 hover:bg-cyan-50"
-                          >
-                            {integration.provider === "gmail"
-                              ? "Resync Gmail"
-                              : "Resync Slack"}
-                          </button>
-                        </form>
-
-                        <form action={disconnectIntegrationAction}>
-                          <input
-                            type="hidden"
-                            name="integrationId"
-                            value={integration.integrationId}
-                          />
-                          <button
-                            type="submit"
-                            className="inline-flex rounded-full border border-rose-300 px-4 py-2 text-sm font-medium text-rose-900 transition hover:border-rose-400 hover:bg-rose-50"
-                          >
-                            Disconnect
-                          </button>
-                        </form>
-                      </>
+                    {integration.requiresReconnect ? (
+                      <ReconnectPrompt
+                        description="Reconnect this integration before reliable sync or send operations continue."
+                      />
                     ) : null}
-                  </div>
-                </article>
-              ))}
-            </div>
+
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {integration.provider === "gmail" ? (
+                          <form action={startGmailConnectAction}>
+                            <Button
+                              type="submit"
+                              variant={
+                                integration.isConnected ? "secondary" : "primary"
+                              }
+                            >
+                              {integration.isConnected
+                                ? "Reconnect Gmail"
+                                : "Connect Gmail"}
+                            </Button>
+                          </form>
+                        ) : (
+                          <form action={startSlackConnectAction}>
+                            <Button
+                              type="submit"
+                              variant={
+                                integration.isConnected ? "secondary" : "primary"
+                              }
+                            >
+                              {integration.isConnected
+                                ? "Reconnect Slack"
+                                : "Connect Slack"}
+                            </Button>
+                          </form>
+                        )}
+
+                        {integration.integrationId ? (
+                          <form action={syncIntegrationAction}>
+                            <input
+                              type="hidden"
+                              name="integrationId"
+                              value={integration.integrationId}
+                            />
+                            <Button type="submit" variant="accent">
+                              {integration.provider === "gmail"
+                                ? "Resync Gmail"
+                              : "Resync Slack"}
+                            </Button>
+                          </form>
+                        ) : null}
+                      </div>
+
+                      {integration.integrationId ? (
+                        <div className="border-t border-slate-200 pt-3">
+                          <form action={disconnectIntegrationAction}>
+                            <input
+                              type="hidden"
+                              name="integrationId"
+                              value={integration.integrationId}
+                            />
+                            <Button type="submit" variant="danger">
+                              Disconnect
+                            </Button>
+                          </form>
+                        </div>
+                      ) : null}
+                    </div>
+                  </Panel>
+                ))}
+              </div>
+            ) : (
+              <PermissionState
+                title="Integration permission required"
+                description="You can view workspace settings, but your current role cannot manage connector setup or sync actions."
+                requiredPermission={PERMISSIONS.CONNECT_INTEGRATIONS}
+                currentRole={authContext.role}
+              />
+            )}
           </section>
-        ) : null}
 
-        {canViewAuditLogs && operationalSnapshot ? (
-          <section className="mt-8 rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-              Observability
-            </p>
-            <h2 className="mt-3 text-xl font-semibold text-slate-950">
-              Operational snapshot
-            </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
-              Dashboard-ready metrics derived from canonical operational data for this
-              workspace.
-            </p>
+          {canViewAuditLogs && operationalSnapshot ? (
+            <section className="order-2 space-y-4">
+              <SectionHeader
+                title="Operational snapshot"
+                description="Dashboard-ready metrics derived from canonical operational data for this workspace."
+              />
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Sync failures
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {operationalSnapshot.connectorSyncFailures.activeErrorIntegrations}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">
-                  Active integration errors
-                </p>
-              </article>
-
-              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Send failure rate
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {(operationalSnapshot.sendFailureRate.failureRate * 100).toFixed(1)}%
-                </p>
-                <p className="mt-1 text-xs text-slate-600">
-                  {operationalSnapshot.sendFailureRate.failedOutboundAttempts}/
-                  {operationalSnapshot.sendFailureRate.totalOutboundAttempts} outbound attempts
-                </p>
-              </article>
-
-              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Worker queue depth
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {operationalSnapshot.workerQueueDepth.queuedJobCount ?? "n/a"}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">
-                  in-flight {operationalSnapshot.workerQueueDepth.inFlightJobCount ?? "n/a"} ·
-                  dead-letter {operationalSnapshot.workerQueueDepth.deadLetterCount ?? "n/a"}
-                </p>
-              </article>
-
-              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Avg agent latency
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {formatDurationMs(operationalSnapshot.averageAgentLatency.averageLatencyMs)}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">
-                  {operationalSnapshot.averageAgentLatency.sampleCount} samples
-                </p>
-              </article>
-
-              <article className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Approval turnaround
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {formatDurationMs(
-                    operationalSnapshot.approvalTurnaroundTime.averageTurnaroundMs,
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                <MetricPanel
+                  label="Sync failures"
+                  value={
+                    operationalSnapshot.connectorSyncFailures
+                      .activeErrorIntegrations
+                  }
+                  description="Active integration errors"
+                />
+                <MetricPanel
+                  label="Send failure rate"
+                  value={`${(
+                    operationalSnapshot.sendFailureRate.failureRate * 100
+                  ).toFixed(1)}%`}
+                  description={`${operationalSnapshot.sendFailureRate.failedOutboundAttempts}/${operationalSnapshot.sendFailureRate.totalOutboundAttempts} outbound attempts`}
+                />
+                <MetricPanel
+                  label="Worker queue depth"
+                  value={
+                    operationalSnapshot.workerQueueDepth.queuedJobCount ?? "n/a"
+                  }
+                  description={`in-flight ${
+                    operationalSnapshot.workerQueueDepth.inFlightJobCount ?? "n/a"
+                  } / dead-letter ${
+                    operationalSnapshot.workerQueueDepth.deadLetterCount ?? "n/a"
+                  }`}
+                />
+                <MetricPanel
+                  label="Avg agent latency"
+                  value={formatDurationMs(
+                    operationalSnapshot.averageAgentLatency.averageLatencyMs,
                   )}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">
-                  {operationalSnapshot.approvalTurnaroundTime.sampleCount} reviewed approvals
-                </p>
-              </article>
-            </div>
+                  description={`${operationalSnapshot.averageAgentLatency.sampleCount} samples`}
+                />
+                <MetricPanel
+                  label="Approval turnaround"
+                  value={formatDurationMs(
+                    operationalSnapshot.approvalTurnaroundTime
+                      .averageTurnaroundMs,
+                  )}
+                  description={`${operationalSnapshot.approvalTurnaroundTime.sampleCount} reviewed approvals`}
+                />
+              </div>
 
-            <div className="mt-5 rounded-[18px] border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
-              Window starts {formatDateTime(new Date(operationalSnapshot.windowStartedAt))}.
-              Snapshot captured {formatDateTime(new Date(operationalSnapshot.observedAt))}.
-              {operationalSnapshot.workerQueueDepth.updatedAt
-                ? ` Worker metrics updated ${formatDateTime(
-                    new Date(operationalSnapshot.workerQueueDepth.updatedAt),
-                  )}.`
-                : " Worker metrics unavailable (worker may be idle)."}
-            </div>
-          </section>
-        ) : null}
-      </div>
-    </main>
+              <Alert severity="neutral" title="Snapshot window">
+                Window starts{" "}
+                {formatDateTime(new Date(operationalSnapshot.windowStartedAt))}.
+                Snapshot captured{" "}
+                {formatDateTime(new Date(operationalSnapshot.observedAt))}.
+                {operationalSnapshot.workerQueueDepth.updatedAt
+                  ? ` Worker metrics updated ${formatDateTime(
+                      new Date(operationalSnapshot.workerQueueDepth.updatedAt),
+                    )}.`
+                  : " Worker metrics unavailable."}
+              </Alert>
+            </section>
+          ) : null}
+
+          {canUseDevApprovalHelper ? (
+            <FormSection
+              title="Developer tools"
+              description="Temporary local testing helpers. These remain isolated from production workspace settings."
+              className="order-4 border-amber-200 bg-amber-50"
+            >
+              <div className="grid gap-6 lg:grid-cols-2">
+                <form
+                  action={createTestApprovalRequestAction}
+                  className="space-y-4"
+                >
+                  <SectionHeader
+                    title="Temporary approval seed"
+                    description="Create a temporary draft and approval request for an existing conversation."
+                  />
+                  {devApprovalConversations.length > 0 ? (
+                    <FormField label="Conversation">
+                      <Select
+                        name="conversationId"
+                        defaultValue=""
+                        placeholder="Auto-pick most recent conversation"
+                        options={conversationOptions}
+                      />
+                    </FormField>
+                  ) : (
+                    <EmptyState
+                      variant="noData"
+                      title="No conversations"
+                      description="There are no conversations available for the helper to use."
+                    />
+                  )}
+                  <SubmitButton variant="secondary">
+                    Create test approval request
+                  </SubmitButton>
+                </form>
+
+                <form
+                  action={previewDraftGeneratorAction}
+                  className="space-y-4"
+                >
+                  <SectionHeader
+                    title="Temporary draft preview"
+                    description="Run planner and draft generation for a selected conversation without saving."
+                  />
+                  {devApprovalConversations.length > 0 ? (
+                    <FormField label="Conversation">
+                      <Select
+                        name="conversationId"
+                        defaultValue=""
+                        placeholder="Auto-pick most recent conversation"
+                        options={conversationOptions}
+                      />
+                    </FormField>
+                  ) : (
+                    <EmptyState
+                      variant="noData"
+                      title="No conversations"
+                      description="There are no conversations available for the helper to use."
+                    />
+                  )}
+                  <SubmitButton variant="secondary">
+                    Preview draft
+                  </SubmitButton>
+                </form>
+              </div>
+
+              {integrationName === "draft-preview" &&
+              integrationAction === "preview" ? (
+                <Panel className="space-y-4">
+                  <SectionHeader title="Draft preview result" />
+                  <MetadataList
+                    items={[
+                      {
+                        label: "Conversation",
+                        value: previewConversationId ?? "Unavailable",
+                      },
+                      {
+                        label: "Planner action",
+                        value: `${previewPlannerAction ?? "Unavailable"} (${
+                          previewPlannerConfidence ?? "n/a"
+                        })`,
+                      },
+                      {
+                        label: "Generation confidence",
+                        value: previewGenerationConfidence ?? "n/a",
+                      },
+                      {
+                        label: "Suggested state",
+                        value: previewSuggestedState || "none",
+                      },
+                      {
+                        label: "Extracted keys",
+                        value: previewExtractedKeys ?? "none",
+                      },
+                      {
+                        label: "Planner rationale",
+                        value: previewPlannerRationale ?? "Unavailable",
+                      },
+                      {
+                        label: "Generation rationale",
+                        value: previewGenerationRationale ?? "Unavailable",
+                      },
+                    ]}
+                  />
+                  <Panel variant="subtle">
+                    <p className="text-xs font-medium text-slate-500">
+                      Proposed message text
+                    </p>
+                    <pre className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-900">
+                      {previewMessageText ?? "No proposed text available."}
+                    </pre>
+                  </Panel>
+                </Panel>
+              ) : null}
+            </FormSection>
+          ) : null}
+        </div>
+      </PageContainer>
+    </ProductShell>
   );
 }

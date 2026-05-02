@@ -2,6 +2,8 @@
 
 import { useFormStatus } from "react-dom";
 
+import { SubmitButton } from "@envoy/ui";
+
 type ApprovalSubmitButtonProps = {
   idleLabel: string;
   pendingLabel: string;
@@ -14,21 +16,16 @@ export function ApprovalSubmitButton({
   tone = "primary",
 }: ApprovalSubmitButtonProps) {
   const { pending } = useFormStatus();
-
-  const toneClassName =
-    tone === "danger"
-      ? "bg-rose-600 hover:bg-rose-500"
-      : tone === "secondary"
-        ? "bg-slate-700 hover:bg-slate-600"
-        : "bg-slate-950 hover:bg-slate-800";
+  const variant =
+    tone === "danger" ? "danger" : tone === "secondary" ? "secondary" : "primary";
 
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className={`inline-flex rounded-full px-5 py-2.5 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${toneClassName}`}
+    <SubmitButton
+      loading={pending}
+      loadingLabel={pendingLabel}
+      variant={variant}
     >
-      {pending ? pendingLabel : idleLabel}
-    </button>
+      {idleLabel}
+    </SubmitButton>
   );
 }

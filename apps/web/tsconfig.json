@@ -22,7 +22,8 @@
       "@/*": ["./src/*"],
       "@envoy/connectors": ["../../packages/connectors/src/index.ts"],
       "@envoy/db": ["../../packages/db/src/index.ts"],
-      "@envoy/events": ["../../packages/events/src/index.ts"]
+      "@envoy/events": ["../../packages/events/src/index.ts"],
+      "@envoy/ui": ["../../packages/ui/src/index.ts"]
     }
   },
   "include": [
