@@ -1,7 +1,19 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, writeFile } from "fs/promises";
+import { dirname } from "path";
 
-import type { WorkerQueueDepthSnapshot } from "./in-memory-runner";
+export type WorkerQueueDepthSnapshot = {
+  queuedJobCount: number;
+  inFlightJobCount: number;
+  completedJobCount?: number;
+  failedJobCount?: number;
+  deadLetterCount: number;
+  stuckJobCount?: number;
+  oldestQueuedJobAgeMs?: number | null;
+  recentFailureCount?: number;
+  redisConnected?: boolean;
+  queuesRegistered?: string[];
+  executionCount: number;
+};
 
 export const DEFAULT_WORKER_METRICS_PATH = "/tmp/envoy-worker-metrics.json";
 

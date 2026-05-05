@@ -16,7 +16,7 @@ import {
   StatusBadge,
   SubmitButton,
 } from "@envoy/ui";
-import { getPrisma } from "@envoy/db";
+import { getPrisma, getRuntimeJobById } from "@envoy/db";
 
 import { ProductShell } from "@/components/product-shell";
 import {
@@ -34,6 +34,7 @@ import {
   startSlackConnectAction,
   syncIntegrationAction,
 } from "@/app/settings/workspace/actions";
+import { SyncJobRefresh } from "@/app/settings/workspace/sync-job-refresh";
 import { getCurrentWorkspaceManagedIntegrations } from "@/lib/integration-management";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +72,41 @@ function formatDurationMs(value: number | null) {
   }
 
   return `${(value / 60_000).toFixed(1)} min`;
+}
+
+function formatElapsedSince(value: Date | null, now: Date) {
+  if (!value) {
+    return "unknown";
+  }
+
+  const elapsedMs = Math.max(0, now.getTime() - value.getTime());
+  return formatDurationMs(elapsedMs);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readRuntimeJobOutput(resultJson: unknown) {
+  if (!isObject(resultJson) || !isObject(resultJson.output)) {
+    return null;
+  }
+
+  return resultJson.output;
+}
+
+function readRuntimeJobError(errorJson: unknown) {
+  if (!isObject(errorJson)) {
+    return null;
+  }
+
+  return typeof errorJson.message === "string" && errorJson.message.trim()
+    ? errorJson.message
+    : null;
 }
 
 type MetricPanelProps = {
@@ -146,6 +182,7 @@ export default async function WorkspaceSettingsPage({
   const integrationAction = readSearchParam(resolvedSearchParams?.action);
   const integrationStatus = readSearchParam(resolvedSearchParams?.status);
   const integrationMessage = readSearchParam(resolvedSearchParams?.message);
+  const syncJobId = readSearchParam(resolvedSearchParams?.jobId);
   const syncThreadCount = readSearchParam(resolvedSearchParams?.threadCount);
   const syncMessageCount = readSearchParam(resolvedSearchParams?.messageCount);
   const syncDmConversationCount = readSearchParam(
@@ -178,6 +215,29 @@ export default async function WorkspaceSettingsPage({
   const previewMessageText = readSearchParam(
     resolvedSearchParams?.proposedMessageText,
   );
+  const syncRuntimeJob = syncJobId
+    ? await getRuntimeJobById(syncJobId).catch(() => null)
+    : null;
+  const visibleSyncRuntimeJob =
+    syncRuntimeJob?.workspaceId === authContext.workspaceId &&
+    syncRuntimeJob.queueName === "sync" &&
+    (syncRuntimeJob.jobType === "sync.gmail_integration" ||
+      syncRuntimeJob.jobType === "sync.slack_integration")
+      ? syncRuntimeJob
+      : null;
+  const snapshotNow = operationalSnapshot
+    ? new Date(operationalSnapshot.observedAt)
+    : new Date();
+  const workerMetricsUpdatedAt = operationalSnapshot?.workerQueueDepth.updatedAt
+    ? new Date(operationalSnapshot.workerQueueDepth.updatedAt)
+    : null;
+  const workerMetricsAgeMs = workerMetricsUpdatedAt
+    ? snapshotNow.getTime() - workerMetricsUpdatedAt.getTime()
+    : null;
+  const workerHeartbeatIsFresh =
+    workerMetricsAgeMs != null &&
+    Number.isFinite(workerMetricsAgeMs) &&
+    workerMetricsAgeMs <= 20_000;
 
   const conversationOptions = devApprovalConversations.map((conversation) => {
     const fallbackLabel =
@@ -198,6 +258,98 @@ export default async function WorkspaceSettingsPage({
   });
 
   function renderIntegrationBanner() {
+    if (
+      integrationStatus === "queued" &&
+      integrationAction === "sync" &&
+      (integrationName === "gmail" || integrationName === "slack")
+    ) {
+      const providerLabel = integrationName === "gmail" ? "Gmail" : "Slack";
+      const runtimeJob = visibleSyncRuntimeJob;
+
+      if (runtimeJob?.status === "COMPLETED") {
+        const output = readRuntimeJobOutput(runtimeJob.resultJson);
+        const messageCount = readNumber(output?.messageCount);
+        const threadCount = readNumber(output?.threadCount);
+        const dmConversationCount = readNumber(output?.dmConversationCount);
+
+        return (
+          <Alert severity="success" title={`${providerLabel} sync completed`}>
+            {integrationName === "gmail" ? (
+              <>
+                Threads fetched: {threadCount ?? "n/a"}. Messages written:{" "}
+                {messageCount ?? "n/a"}.
+              </>
+            ) : (
+              <>
+                DMs fetched: {dmConversationCount ?? "n/a"}. Messages written:{" "}
+                {messageCount ?? "n/a"}.
+              </>
+            )}
+          </Alert>
+        );
+      }
+
+      if (
+        runtimeJob?.status === "FAILED" ||
+        runtimeJob?.status === "DEAD_LETTERED"
+      ) {
+        return (
+          <Alert severity="critical" title={`${providerLabel} sync failed`}>
+            {readRuntimeJobError(runtimeJob.lastErrorJson) ??
+              "The worker could not complete this sync job."}
+          </Alert>
+        );
+      }
+
+      if (runtimeJob?.status === "RUNNING") {
+        return (
+          <Alert severity="info" title={`${providerLabel} sync running`}>
+            <SyncJobRefresh />
+            The worker is syncing this integration now. This page will refresh
+            automatically until the job completes.
+          </Alert>
+        );
+      }
+
+      if (runtimeJob?.status === "QUEUED" && !workerHeartbeatIsFresh) {
+        return (
+          <Alert severity="warning" title={`${providerLabel} sync waiting for worker`}>
+            <SyncJobRefresh />
+            This sync job has been queued for{" "}
+            {formatElapsedSince(runtimeJob.queuedAt, snapshotNow)}.
+            The worker heartbeat is{" "}
+            {workerMetricsUpdatedAt
+              ? `${formatElapsedSince(workerMetricsUpdatedAt, snapshotNow)} old`
+              : "unavailable"}
+            , so the worker is probably not running or cannot write health
+            metrics. Start the worker process and this queued job should run.
+          </Alert>
+        );
+      }
+
+      if (runtimeJob?.status === "CANCELLED") {
+        return (
+          <Alert severity="warning" title={`${providerLabel} sync cancelled`}>
+            This sync job was cancelled before it completed.
+          </Alert>
+        );
+      }
+
+      return (
+        <Alert
+          severity="info"
+          title={`${providerLabel} sync queued`}
+        >
+          <SyncJobRefresh />
+          The sync job is waiting for the worker. Queued for{" "}
+          {runtimeJob
+            ? formatElapsedSince(runtimeJob.queuedAt, snapshotNow)
+            : "unknown"}. This page will refresh automatically and show
+          completion or failure when the worker finishes.
+        </Alert>
+      );
+    }
+
     if (
       integrationStatus === "completed" &&
       integrationAction === "sync" &&

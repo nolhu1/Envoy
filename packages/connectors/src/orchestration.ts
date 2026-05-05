@@ -10,6 +10,7 @@ import {
 import {
   IDEMPOTENCY_DECISION_TYPES,
   IDEMPOTENCY_SCOPES,
+  IDEMPOTENCY_STATUSES,
   type IdempotencyKey,
 } from "./idempotency";
 import {
@@ -206,7 +207,8 @@ export async function runInboundOrchestration<
 
   if (
     idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.ALREADY_PROCESSED ||
-    idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.IN_PROGRESS
+    idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.IN_PROGRESS ||
+    idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.FAILED_PRIOR_ATTEMPT
   ) {
     return buildInboundDuplicateResult(
       envelope,
@@ -215,9 +217,25 @@ export async function runInboundOrchestration<
     );
   }
 
-  await idempotencyService.begin({
+  const beginRecord = await idempotencyService.begin({
     key: idempotencyKey,
   });
+
+  if (beginRecord.status !== IDEMPOTENCY_STATUSES.IN_PROGRESS) {
+    return buildInboundDuplicateResult(
+      envelope,
+      beginRecord.resultSummaryJson &&
+        typeof beginRecord.resultSummaryJson === "object" &&
+        !Array.isArray(beginRecord.resultSummaryJson) &&
+        "messageIds" in beginRecord.resultSummaryJson &&
+        Array.isArray(beginRecord.resultSummaryJson.messageIds)
+        ? beginRecord.resultSummaryJson.messageIds.filter(
+            (messageId): messageId is string => typeof messageId === "string",
+          )
+        : [],
+      diagnostics,
+    );
+  }
 
   try {
     const validatedEnvelope = await (handlers.validateSource ?? defaultValidateSource)(

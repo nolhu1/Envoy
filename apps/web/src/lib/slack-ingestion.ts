@@ -1,23 +1,20 @@
-import "server-only";
-
 import {
   buildSlackRecentDmSyncInput,
   createCanonicalWriteHandler,
   fetchSlackRecentDms,
-  InMemoryIdempotencyService,
   normalizeSlackConversationGroups,
   runInboundOrchestration,
   type ConnectorContext,
   type InboundOrchestrationResult,
   type SlackDmConversationSyncItem,
-} from "@envoy/connectors";
+} from "../../../../packages/connectors/src/index";
 import {
   createPrismaCanonicalPersistenceWriter,
+  createPrismaIdempotencyService,
   getPrisma,
   resolveConnectorContextForWorkspaceIntegration,
-} from "@envoy/db";
+} from "../../../../packages/db/src/index";
 
-import { getCurrentAppAuthContext } from "@/lib/app-auth";
 import {
   buildEnvoyEvent,
   ENVOY_EVENT_ENTITY_TYPES,
@@ -25,24 +22,13 @@ import {
   ENVOY_EVENT_TYPES,
   publishEnvoyEvent,
   publishEnvoyEvents,
-} from "@/lib/event-publisher";
+} from "./event-publisher";
 import {
   buildSlackFailedSyncMetadata,
   buildSlackSuccessfulSyncMetadata,
   buildSlackSyncInProgressMetadata,
-} from "@/lib/slack-sync-checkpoint";
-import { sanitizeDiagnostics, sanitizeErrorMessage } from "@/lib/security";
-
-type WorkspaceSlackIntegration = {
-  id: string;
-  workspaceId: string;
-  externalAccountId: string | null;
-  displayName: string | null;
-  status: string;
-  lastSyncedAt: Date | null;
-  platformMetadataJson: unknown;
-  updatedAt: Date;
-};
+} from "./slack-sync-checkpoint";
+import { sanitizeDiagnostics, sanitizeErrorMessage } from "./security";
 
 type SyncWorkspaceSlackIntegrationResult = {
   integrationId: string;
@@ -55,20 +41,14 @@ type SyncWorkspaceSlackIntegrationResult = {
   hasMore: boolean;
 };
 
-const slackSyncIdempotencyService = new InMemoryIdempotencyService();
+const slackSyncIdempotencyService = createPrismaIdempotencyService({
+  lockOwner: "web:slack-sync",
+});
 const DEFAULT_SLACK_RECENT_WINDOW_DAYS = 14;
 const INITIAL_SLACK_RECENT_WINDOW_DAYS = 90;
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isSlackIntegration(integration: WorkspaceSlackIntegration) {
-  const metadata = isJsonObject(integration.platformMetadataJson)
-    ? integration.platformMetadataJson
-    : null;
-
-  return metadata?.provider === "slack";
 }
 
 function toPrismaJsonValue(value: unknown) {
@@ -97,36 +77,6 @@ function readRecentWindowDays(connectorContext: ConnectorContext) {
       : INITIAL_SLACK_RECENT_WINDOW_DAYS;
 }
 
-export async function getCurrentWorkspaceSlackIntegration() {
-  const authContext = await getCurrentAppAuthContext();
-
-  if (!authContext) {
-    return null;
-  }
-
-  const prisma = getPrisma();
-  const integrations = await prisma.integration.findMany({
-    where: {
-      workspaceId: authContext.workspaceId,
-      deletedAt: null,
-      platform: "SLACK",
-    },
-    select: {
-      id: true,
-      workspaceId: true,
-      externalAccountId: true,
-      displayName: true,
-      status: true,
-      lastSyncedAt: true,
-      platformMetadataJson: true,
-      updatedAt: true,
-    },
-    orderBy: [{ updatedAt: "desc" }],
-  });
-
-  return integrations.find(isSlackIntegration) ?? null;
-}
-
 function buildSlackEnvelope(input: {
   workspaceId: string;
   integrationId: string;
@@ -153,7 +103,6 @@ function buildSlackEnvelope(input: {
       "slack",
       "sync",
       input.integrationId,
-      input.syncRunId,
       input.normalizedGroup.conversation.externalConversationId,
       lastMessage?.externalMessageId ?? "conversation",
       String(input.normalizedGroup.messages.length),

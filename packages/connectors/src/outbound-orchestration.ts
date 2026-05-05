@@ -1,6 +1,7 @@
 import {
   IDEMPOTENCY_DECISION_TYPES,
   IDEMPOTENCY_SCOPES,
+  IDEMPOTENCY_STATUSES,
   type IdempotencyKey,
 } from "./idempotency";
 import {
@@ -209,14 +210,29 @@ function defaultResolveOutboundIdempotencyKey<
 
 function buildDuplicateOutboundResult(
   envelope: OutboundSendEnvelope,
+  resultSummaryJson?: JsonValue | null,
 ): OutboundOrchestrationResult {
+  const resultSummary =
+    resultSummaryJson &&
+    typeof resultSummaryJson === "object" &&
+    !Array.isArray(resultSummaryJson)
+      ? resultSummaryJson
+      : null;
+  const sendStatus =
+    typeof resultSummary?.sendStatus === "string"
+      ? (resultSummary.sendStatus as OutboundSendStatus)
+      : OUTBOUND_SEND_STATUSES.REJECTED;
+
   return {
     workspaceId: envelope.workspaceId,
     integrationId: envelope.integrationId,
     conversationId: envelope.conversationId,
     messageId: envelope.messageId,
-    externalMessageId: null,
-    sendStatus: OUTBOUND_SEND_STATUSES.REJECTED,
+    externalMessageId:
+      typeof resultSummary?.externalMessageId === "string"
+        ? resultSummary.externalMessageId
+        : null,
+    sendStatus,
     providerAcceptedAt: null,
     deliveryState: null,
     auditEvents: [],
@@ -254,14 +270,22 @@ export async function runOutboundOrchestration<
 
   if (
     idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.ALREADY_PROCESSED ||
-    idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.IN_PROGRESS
+    idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.IN_PROGRESS ||
+    idempotencyDecision.decision === IDEMPOTENCY_DECISION_TYPES.FAILED_PRIOR_ATTEMPT
   ) {
-    return buildDuplicateOutboundResult(envelope);
+    return buildDuplicateOutboundResult(
+      envelope,
+      idempotencyDecision.resultSummaryJson,
+    );
   }
 
-  await idempotencyService.begin({
+  const beginRecord = await idempotencyService.begin({
     key: idempotencyKey,
   });
+
+  if (beginRecord.status !== IDEMPOTENCY_STATUSES.IN_PROGRESS) {
+    return buildDuplicateOutboundResult(envelope, beginRecord.resultSummaryJson);
+  }
 
   try {
     const validatedEnvelope = await (

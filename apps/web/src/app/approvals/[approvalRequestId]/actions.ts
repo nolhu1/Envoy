@@ -35,22 +35,13 @@ export async function approveApprovalRequestAction(formData: FormData) {
   }
 
   try {
-    const result = await approveCurrentWorkspaceApprovalRequest({
+    await approveCurrentWorkspaceApprovalRequest({
       approvalRequestId,
     });
 
-    if (result.send?.sendStatus === "FAILED") {
-      redirect(
-        buildApprovalDetailRedirect(approvalRequestId, {
-          review: "send-failed",
-          message: "Draft was approved, but provider send failed.",
-        }),
-      );
-    }
-
     redirect(
       buildApprovalDetailRedirect(approvalRequestId, {
-        review: "approved",
+        review: "approved-queued",
       }),
     );
   } catch (error) {
@@ -127,24 +118,14 @@ export async function editAndApproveApprovalRequestAction(formData: FormData) {
   }
 
   try {
-    const result = await editAndApproveCurrentWorkspaceApprovalRequest({
+    await editAndApproveCurrentWorkspaceApprovalRequest({
       approvalRequestId,
       editedContent,
     });
 
-    if (result.send?.sendStatus === "FAILED") {
-      redirect(
-        buildApprovalDetailRedirect(approvalRequestId, {
-          review: "send-failed",
-          message:
-            "Draft was edited and approved, but provider send failed.",
-        }),
-      );
-    }
-
     redirect(
       buildApprovalDetailRedirect(approvalRequestId, {
-        review: "edit-approved",
+        review: "edit-approved-queued",
       }),
     );
   } catch (error) {

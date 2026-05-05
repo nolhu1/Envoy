@@ -1,5 +1,3 @@
-import "server-only";
-
 import {
   AGENT_PLANNER_ACTION_TYPES,
   buildAgentConversationContext,
@@ -13,24 +11,23 @@ import {
   type AgentTriggerContext,
   type DraftGenerationConfig,
   type DraftGenerationResult,
-} from "@envoy/db";
+} from "../../../../packages/db/src/index";
 
-import { generateDraftFromPlanner } from "@/lib/draft-generator";
+import { generateDraftFromPlanner } from "./draft-generator";
 import {
   buildEnvoyEvent,
   ENVOY_EVENT_ENTITY_TYPES,
   ENVOY_EVENT_SOURCES,
   ENVOY_EVENT_TYPES,
   publishEnvoyEvent,
-} from "@/lib/event-publisher";
+} from "./event-publisher";
 import {
   AGENT_RUN_ACTION_TYPES,
   buildAgentPromptInputSummary,
   buildSafeGenerationSummary,
   logAgentRunEvent,
   toSafeErrorSummary,
-} from "@/lib/agent-run-logging";
-import { PERMISSIONS, requirePermission } from "@/lib/permissions";
+} from "./agent-run-logging";
 
 export type GeneratedDraftApprovalFlowResult = {
   status: "draft_created";
@@ -126,7 +123,7 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
   const shouldSkipPermissionCheck = Boolean(input.skipPermissionCheck);
   const authContext = shouldSkipPermissionCheck
     ? null
-    : await requirePermission(PERMISSIONS.ASSIGN_AGENTS);
+    : await requireAgentDraftFlowPermission();
   const workspaceId = shouldSkipPermissionCheck
     ? input.workspaceId
     : (input.workspaceId ?? authContext?.workspaceId);
@@ -617,4 +614,22 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
 
     throw error;
   }
+}
+
+async function requireAgentDraftFlowPermission() {
+  const permissionsPath = "./permissions";
+  const importPermissions = (specifier: string) => import(specifier) as Promise<{
+    PERMISSIONS: {
+      ASSIGN_AGENTS: "assign_agents";
+    };
+    requirePermission: (permission: "assign_agents") => Promise<{
+      workspaceId: string;
+      userId: string;
+    }>;
+  }>;
+  const { PERMISSIONS, requirePermission } = await importPermissions(
+    permissionsPath,
+  );
+
+  return requirePermission(PERMISSIONS.ASSIGN_AGENTS);
 }

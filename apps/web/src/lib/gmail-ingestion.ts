@@ -1,26 +1,23 @@
-import "server-only";
-
 import {
   buildGmailRecentThreadSyncInput,
   createCanonicalWriteHandler,
   fetchGmailRecentThreads,
   GmailConnector,
-  InMemoryIdempotencyService,
   normalizeGmailThread,
   runInboundOrchestration,
   type ConnectorContext,
   type GmailThread,
   type InboundOrchestrationResult,
   type OAuthAuthMaterial,
-} from "@envoy/connectors";
+} from "../../../../packages/connectors/src/index";
 import {
   createPrismaCanonicalPersistenceWriter,
+  createPrismaIdempotencyService,
   getPrisma,
   rotateSecret,
   resolveConnectorContextForWorkspaceIntegration,
-} from "@envoy/db";
+} from "../../../../packages/db/src/index";
 
-import { getCurrentAppAuthContext } from "@/lib/app-auth";
 import {
   buildEnvoyEvent,
   ENVOY_EVENT_ENTITY_TYPES,
@@ -28,24 +25,13 @@ import {
   ENVOY_EVENT_TYPES,
   publishEnvoyEvent,
   publishEnvoyEvents,
-} from "@/lib/event-publisher";
+} from "./event-publisher";
 import {
   buildFailedSyncMetadata,
   buildSuccessfulSyncMetadata,
   buildSyncInProgressMetadata,
-} from "@/lib/gmail-sync-checkpoint";
-import { sanitizeErrorMessage } from "@/lib/security";
-
-type WorkspaceGmailIntegration = {
-  id: string;
-  workspaceId: string;
-  externalAccountId: string | null;
-  displayName: string | null;
-  status: string;
-  lastSyncedAt: Date | null;
-  platformMetadataJson: unknown;
-  updatedAt: Date;
-};
+} from "./gmail-sync-checkpoint";
+import { sanitizeErrorMessage } from "./security";
 
 type SyncWorkspaceGmailIntegrationResult = {
   integrationId: string;
@@ -57,23 +43,15 @@ type SyncWorkspaceGmailIntegrationResult = {
   hasMore: boolean;
 };
 
-const gmailSyncIdempotencyService = new InMemoryIdempotencyService();
+const gmailSyncIdempotencyService = createPrismaIdempotencyService({
+  lockOwner: "web:gmail-sync",
+});
 const gmailConnector = new GmailConnector();
 
 function isJsonObject(
   value: unknown,
 ): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isGmailIntegration(
-  integration: WorkspaceGmailIntegration,
-) {
-  const metadata = isJsonObject(integration.platformMetadataJson)
-    ? integration.platformMetadataJson
-    : null;
-
-  return metadata?.provider === "gmail";
 }
 
 function toPrismaJsonValue(value: unknown) {
@@ -149,36 +127,6 @@ async function refreshGmailConnectorContext(
     authMaterial: refreshed.authMaterial,
     secretRef: connectorContext.secretRef,
   };
-}
-
-export async function getCurrentWorkspaceGmailIntegration() {
-  const authContext = await getCurrentAppAuthContext();
-
-  if (!authContext) {
-    return null;
-  }
-
-  const prisma = getPrisma();
-  const integrations = await prisma.integration.findMany({
-    where: {
-      workspaceId: authContext.workspaceId,
-      deletedAt: null,
-      platform: "EMAIL",
-    },
-    select: {
-      id: true,
-      workspaceId: true,
-      externalAccountId: true,
-      displayName: true,
-      status: true,
-      lastSyncedAt: true,
-      platformMetadataJson: true,
-      updatedAt: true,
-    },
-    orderBy: [{ updatedAt: "desc" }],
-  });
-
-  return integrations.find(isGmailIntegration) ?? null;
 }
 
 function buildThreadEnvelope(input: {

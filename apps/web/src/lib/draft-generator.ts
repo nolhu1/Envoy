@@ -1,5 +1,3 @@
-import "server-only";
-
 import {
   DRAFT_GENERATION_PROVIDERS,
   STRUCTURED_MEMORY_FACT_KEYS,
@@ -10,7 +8,7 @@ import {
   type DraftGenerationResult,
   type DraftGenerationStructuredDatum,
   type DraftGeneratorInput,
-} from "@envoy/db";
+} from "../../../../packages/db/src/index";
 
 type ResolvedDraftGenerationConfig = {
   provider: DraftGenerationProvider;

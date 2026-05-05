@@ -2,7 +2,7 @@ import "server-only";
 
 import { readFile } from "node:fs/promises";
 
-import { getPrisma } from "@envoy/db";
+import { getPrisma, getRuntimeJobHealthSummary } from "@envoy/db";
 
 import { sanitizeDiagnostics } from "@/lib/security";
 
@@ -12,7 +12,14 @@ const DEFAULT_WORKER_METRICS_PATH = "/tmp/envoy-worker-metrics.json";
 type WorkerMetricsSnapshot = {
   queuedJobCount: number;
   inFlightJobCount: number;
+  completedJobCount?: number | null;
+  failedJobCount?: number | null;
   deadLetterCount: number;
+  stuckJobCount?: number | null;
+  oldestQueuedJobAgeMs?: number | null;
+  recentFailureCount?: number | null;
+  redisConnected?: boolean | null;
+  queuesRegistered?: string[] | null;
   executionCount: number;
   updatedAt: string;
 };
@@ -45,6 +52,20 @@ export type WorkspaceOperationalSnapshot = {
     deadLetterCount: number | null;
     executionCount: number | null;
     updatedAt: string | null;
+  };
+  runtimeHealth: {
+    redisConnected: boolean | null;
+    queuesRegistered: string[];
+    queuedJobCount: number;
+    runningJobCount: number;
+    completedJobCount: number;
+    failedJobCount: number;
+    deadLetteredJobCount: number;
+    cancelledJobCount: number;
+    deadLetterCount: number;
+    stuckJobCount: number;
+    oldestQueuedJobAgeMs: number | null;
+    recentFailureCount: number;
   };
   averageAgentLatency: {
     sampleCount: number;
@@ -127,6 +148,18 @@ async function readWorkerMetricsSnapshot(): Promise<WorkerMetricsSnapshot | null
     const queuedJobCount = toNumber(parsed.queuedJobCount);
     const inFlightJobCount = toNumber(parsed.inFlightJobCount);
     const deadLetterCount = toNumber(parsed.deadLetterCount);
+    const completedJobCount = toNumber(parsed.completedJobCount);
+    const failedJobCount = toNumber(parsed.failedJobCount);
+    const stuckJobCount = toNumber(parsed.stuckJobCount);
+    const oldestQueuedJobAgeMs = toNumber(parsed.oldestQueuedJobAgeMs);
+    const recentFailureCount = toNumber(parsed.recentFailureCount);
+    const redisConnected =
+      typeof parsed.redisConnected === "boolean" ? parsed.redisConnected : null;
+    const queuesRegistered = Array.isArray(parsed.queuesRegistered)
+      ? parsed.queuesRegistered.filter(
+          (queueName): queueName is string => typeof queueName === "string",
+        )
+      : null;
     const executionCount = toNumber(parsed.executionCount);
     const updatedAt =
       typeof parsed.updatedAt === "string" && parsed.updatedAt.trim()
@@ -146,7 +179,14 @@ async function readWorkerMetricsSnapshot(): Promise<WorkerMetricsSnapshot | null
     return {
       queuedJobCount,
       inFlightJobCount,
+      completedJobCount,
+      failedJobCount,
       deadLetterCount,
+      stuckJobCount,
+      oldestQueuedJobAgeMs,
+      recentFailureCount,
+      redisConnected,
+      queuesRegistered,
       executionCount,
       updatedAt,
     };
@@ -176,6 +216,7 @@ export async function getWorkspaceOperationalSnapshot(input: {
     agentRunLogs,
     reviewedApprovals,
     workerMetrics,
+    runtimeHealth,
   ] = await Promise.all([
     prisma.integration.findMany({
       where: {
@@ -260,6 +301,7 @@ export async function getWorkspaceOperationalSnapshot(input: {
       take: 5000,
     }),
     readWorkerMetricsSnapshot(),
+    getRuntimeJobHealthSummary(),
   ]);
 
   const runStartedAtById = new Map<string, Date>();
@@ -338,6 +380,20 @@ export async function getWorkspaceOperationalSnapshot(input: {
       deadLetterCount: workerMetrics?.deadLetterCount ?? null,
       executionCount: workerMetrics?.executionCount ?? null,
       updatedAt: workerMetrics?.updatedAt ?? null,
+    },
+    runtimeHealth: {
+      redisConnected: workerMetrics?.redisConnected ?? null,
+      queuesRegistered: workerMetrics?.queuesRegistered ?? [],
+      queuedJobCount: runtimeHealth.countsByStatus.QUEUED,
+      runningJobCount: runtimeHealth.countsByStatus.RUNNING,
+      completedJobCount: runtimeHealth.countsByStatus.COMPLETED,
+      failedJobCount: runtimeHealth.countsByStatus.FAILED,
+      deadLetteredJobCount: runtimeHealth.countsByStatus.DEAD_LETTERED,
+      cancelledJobCount: runtimeHealth.countsByStatus.CANCELLED,
+      deadLetterCount: runtimeHealth.deadLetterCount,
+      stuckJobCount: runtimeHealth.stuckJobCount,
+      oldestQueuedJobAgeMs: runtimeHealth.oldestQueuedJobAgeMs,
+      recentFailureCount: runtimeHealth.recentFailureCount,
     },
     averageAgentLatency: {
       sampleCount: agentLatencies.length,

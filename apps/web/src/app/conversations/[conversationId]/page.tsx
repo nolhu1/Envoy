@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { randomUUID } from "node:crypto";
 import { notFound } from "next/navigation";
 
 import {
@@ -102,6 +103,7 @@ export default async function ConversationThreadPage({
   const approvalRequestId = readSearchParam(
     resolvedSearchParams?.approvalRequestId,
   );
+  const agentRunRequestNonce = randomUUID();
   const enabledTriggerTypesForForm =
     thread.hasConfiguredTriggerRules
       ? thread.enabledTriggerTypes
@@ -112,6 +114,12 @@ export default async function ConversationThreadPage({
       {replyStatus === "sent" ? (
         <Alert severity="success" title="Reply sent">
           The manual reply was sent successfully.
+        </Alert>
+      ) : null}
+
+      {replyStatus === "queued" ? (
+        <Alert severity="neutral" title="Reply queued">
+          The manual reply was queued and will send in the worker.
         </Alert>
       ) : null}
 
@@ -164,6 +172,12 @@ export default async function ConversationThreadPage({
           }
         >
           Agent run completed and created an approval request.
+        </Alert>
+      ) : null}
+
+      {agentRunStatus === "queued" ? (
+        <Alert severity="neutral" title="Agent run queued">
+          The draft run was queued and will generate in the worker.
         </Alert>
       ) : null}
 
@@ -342,6 +356,11 @@ export default async function ConversationThreadPage({
                 type="hidden"
                 name="conversationId"
                 value={thread.conversationId}
+              />
+              <input
+                type="hidden"
+                name="requestNonce"
+                value={agentRunRequestNonce}
               />
               <AgentRunButton
                 type="submit"

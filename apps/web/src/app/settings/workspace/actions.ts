@@ -11,6 +11,13 @@ import {
   revokeSecret,
 } from "@envoy/db";
 import { redirect } from "next/navigation";
+import {
+  WORKER_JOB_TYPES,
+} from "../../../../../worker/src/jobs";
+import {
+  WORKER_QUEUE_NAMES,
+  enqueueRuntimeJob,
+} from "../../../../../worker/src/queues";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { PERMISSIONS } from "@/lib/permissions";
@@ -25,9 +32,7 @@ import { sanitizeUiErrorMessage } from "@/lib/security";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import { requireAuthenticatedEntryPoint } from "@/lib/workspace-guards";
 import { generateDraftFromPlanner } from "@/lib/draft-generator";
-import { syncWorkspaceGmailIntegration } from "@/lib/gmail-ingestion";
 import { planAgentResponseForWorkspace } from "@/lib/response-planner";
-import { syncWorkspaceSlackIntegration } from "@/lib/slack-ingestion";
 
 export async function startGmailConnectAction() {
   const authContext = await requireAuthenticatedEntryPoint({
@@ -68,6 +73,19 @@ export async function startSlackConnectAction() {
 
 function toSyncErrorMessage(error: unknown) {
   return sanitizeUiErrorMessage(error) || "Unable to sync integration.";
+}
+
+function buildManualSyncDedupeKey(input: {
+  workspaceId: string;
+  integrationId: string;
+  requestedAt: Date;
+}) {
+  const doubleSubmitBucketMs = 10_000;
+  const requestBucket = Math.floor(
+    input.requestedAt.getTime() / doubleSubmitBucketMs,
+  );
+
+  return `sync:${input.workspaceId}:${input.integrationId}:manual:${requestBucket}`;
 }
 
 async function requireWorkspaceForIntegrationManagement() {
@@ -284,7 +302,8 @@ function isDraftReplyAllowed(value: unknown) {
 }
 
 export async function syncIntegrationAction(formData: FormData) {
-  const { workspace } = await requireWorkspaceForIntegrationManagement();
+  const { authContext, workspace } =
+    await requireWorkspaceForIntegrationManagement();
   const integrationId = String(formData.get("integrationId") ?? "").trim();
 
   if (!integrationId) {
@@ -300,31 +319,41 @@ export async function syncIntegrationAction(formData: FormData) {
     throw new Error("No managed integration is connected for this workspace.");
   }
 
+  let queuedRedirectHref: string;
+
   try {
-    if (integration.platform === "EMAIL") {
-      const result = await syncWorkspaceGmailIntegration({
+    const provider = integration.platform === "EMAIL" ? "gmail" : "slack";
+    const jobType =
+      integration.platform === "EMAIL"
+        ? WORKER_JOB_TYPES.SYNC_GMAIL_INTEGRATION
+        : WORKER_JOB_TYPES.SYNC_SLACK_INTEGRATION;
+    const requestedAtDate = new Date();
+    const requestedAt = requestedAtDate.toISOString();
+    const enqueueResult = await enqueueRuntimeJob({
+      queueName: WORKER_QUEUE_NAMES.SYNC,
+      jobType,
+      workspaceId: workspace.id,
+      payload: {
         workspaceId: workspace.id,
         integrationId: integration.id,
-      });
-
-      redirect(
-        `/settings/workspace?integration=gmail&action=sync&status=completed&threadCount=${result.threadCount}&messageCount=${result.messageCount}`,
-      );
-    }
-
-    const result = await syncWorkspaceSlackIntegration({
-      workspaceId: workspace.id,
-      integrationId: integration.id,
+        requestedByUserId: authContext.userId,
+        reason: "manual",
+        requestedAt,
+      },
+      dedupeKey: buildManualSyncDedupeKey({
+        workspaceId: workspace.id,
+        integrationId: integration.id,
+        requestedAt: requestedAtDate,
+      }),
+      retryPolicy: {
+        maxAttempts: 3,
+      },
     });
 
-    redirect(
-      `/settings/workspace?integration=slack&action=sync&status=completed&dmConversationCount=${result.dmConversationCount}&messageCount=${result.messageCount}`,
-    );
+    queuedRedirectHref =
+      `/settings/workspace?integration=${provider}` +
+      `&action=sync&status=queued&jobId=${enqueueResult.runtimeJobId}`;
   } catch (error) {
-    if (isRedirectError(error)) {
-      throw error;
-    }
-
     const message = toSyncErrorMessage(error);
     redirect(
       `/settings/workspace?integration=${
@@ -332,6 +361,8 @@ export async function syncIntegrationAction(formData: FormData) {
       }&action=sync&status=error&message=${encodeURIComponent(message)}`,
     );
   }
+
+  redirect(queuedRedirectHref);
 }
 
 export async function disconnectIntegrationAction(formData: FormData) {

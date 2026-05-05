@@ -1,6 +1,4 @@
-import "server-only";
-
-import { sanitizeErrorMessage } from "@/lib/security";
+import { sanitizeErrorMessage } from "./security";
 
 type GmailSyncCheckpointStatus = "IDLE" | "SYNC_IN_PROGRESS" | "SUCCEEDED" | "FAILED";
 type GmailSyncFailureCategory =

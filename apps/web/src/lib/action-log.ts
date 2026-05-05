@@ -1,13 +1,11 @@
-import "server-only";
-
-import { getPrisma } from "@envoy/db";
+import { getPrisma } from "../../../../packages/db/src/index";
 import {
   ENVOY_EVENT_TYPES,
   type EnvoyEvent,
   type EnvoyEventType,
-} from "@envoy/events";
+} from "../../../../packages/events/src/index";
 
-import { sanitizeDiagnostics } from "@/lib/security";
+import { sanitizeDiagnostics } from "./security";
 
 export const CANONICAL_ACTION_LOG_TYPES = {
   INTEGRATION_CONNECTED: "INTEGRATION_CONNECTED",

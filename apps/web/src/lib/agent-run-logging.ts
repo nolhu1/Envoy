@@ -1,8 +1,6 @@
-import "server-only";
+import { getPrisma } from "../../../../packages/db/src/index";
 
-import { getPrisma } from "@envoy/db";
-
-import type { AgentConversationContext, AgentResponsePlan, AgentTriggerContext, DraftGenerationResult } from "@envoy/db";
+import type { AgentConversationContext, AgentResponsePlan, AgentTriggerContext, DraftGenerationResult } from "../../../../packages/db/src/index";
 
 export const AGENT_RUN_ACTION_TYPES = {
   RUN_REQUESTED: "AGENT_RUN_REQUESTED",

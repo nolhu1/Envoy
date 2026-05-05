@@ -43,6 +43,48 @@ export {
 export { createPrismaCanonicalPersistenceWriter } from "./inbound-writer";
 export { createPrismaCanonicalOutboundWriter } from "./outbound-writer";
 export {
+  createEventJournalRecord,
+  createEventProcessingAttempt,
+  EventJournalStatus,
+  EventProcessingStatus,
+  finishEventProcessingAttempt,
+  getEventJournalRecordByEventId,
+  markEventJournalDeadLettered,
+  markEventJournalFailed,
+  markEventJournalProcessed,
+  markEventJournalProcessing,
+  requestEventReplay,
+} from "./event-journal";
+export {
+  beginIdempotencyOperation,
+  completeIdempotencyOperation,
+  createPrismaIdempotencyService,
+  failIdempotencyOperation,
+  getIdempotencyRecord,
+  IdempotencyRecordStatus,
+  markDuplicateIdempotencyOperation,
+} from "./idempotency-records";
+export {
+  createDeadLetterRecord,
+  createRuntimeJob,
+  createRuntimeJobAttempt,
+  deadLetterRuntimeJob,
+  findStuckRunningRuntimeJobs,
+  finishRuntimeJobAttempt,
+  getRuntimeJobHealthSummary,
+  getRuntimeJobById,
+  getRuntimeWorkerHealthCounts,
+  markRuntimeJobCompleted,
+  markRuntimeJobDeadLettered,
+  markRuntimeJobFailed,
+  markRuntimeJobRunning,
+  requeueRuntimeJob,
+  requestRuntimeJobReplay,
+  RuntimeJobAttemptStatus,
+  RuntimeJobStatus,
+  setRuntimeJobBullJobId,
+} from "./runtime-jobs";
+export {
   resolveConnectorContextForWorkspaceIntegration,
   resolveConnectorContextFromIntegration,
 } from "./connector-context";
@@ -132,3 +174,29 @@ export type {
   StoredSecret,
   UpdateSecretInput,
 } from "./connector-secret-store";
+export type {
+  CreateEventJournalRecordOptions,
+  CreateEventProcessingAttemptInput,
+  FinishEventProcessingAttemptInput,
+} from "./event-journal";
+export type {
+  BeginIdempotencyOperationInput,
+  CompleteIdempotencyOperationInput,
+  CreatePrismaIdempotencyServiceOptions,
+  FailIdempotencyOperationInput,
+  MarkDuplicateIdempotencyOperationInput,
+  PrismaIdempotencyDecision,
+  PrismaIdempotencyKey,
+  PrismaIdempotencyRecordSummary,
+} from "./idempotency-records";
+export type {
+  CreateDeadLetterRecordInput,
+  CreateRuntimeJobAttemptInput,
+  CreateRuntimeJobInput,
+  CreateRuntimeJobResult,
+  DeadLetterRecord,
+  FinishRuntimeJobAttemptInput,
+  RuntimeJob,
+  RuntimeJobAttempt,
+  RuntimeJobHealthSummary,
+} from "./runtime-jobs";

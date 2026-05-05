@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
-import { AGENT_TRIGGER_TYPES, getPrisma } from "@envoy/db";
+import { getPrisma } from "@envoy/db";
 
 import {
   assignAgentToConversationForWorkspace,
@@ -14,11 +14,15 @@ import {
   DEFAULT_ENABLED_AGENT_TRIGGER_TYPES,
   normalizeAgentTriggerTypes,
 } from "@/lib/agent-trigger-rules";
-import { generateDraftAndCreateApprovalForWorkspace } from "@/lib/agent-draft-flow";
-import { sendWorkspaceGmailReply } from "@/lib/gmail-send";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
-import { sendWorkspaceSlackReply } from "@/lib/slack-send";
 import { sanitizeUiErrorMessage } from "@/lib/security";
+import {
+  WORKER_JOB_TYPES,
+} from "../../../../../worker/src/jobs";
+import {
+  WORKER_QUEUE_NAMES,
+  enqueueRuntimeJob,
+} from "../../../../../worker/src/queues";
 
 function buildThreadRedirect(
   conversationId: string,
@@ -58,6 +62,7 @@ export async function sendManualReplyAction(formData: FormData) {
     select: {
       id: true,
       workspaceId: true,
+      integrationId: true,
       platform: true,
     },
   });
@@ -69,55 +74,75 @@ export async function sendManualReplyAction(formData: FormData) {
     }));
   }
 
-  const message = await prisma.message.create({
-    data: {
-      workspaceId: authContext.workspaceId,
-      conversationId: conversation.id,
-      platform: conversation.platform,
-      senderType: "USER",
-      direction: "OUTBOUND",
-      bodyText,
-      status: "DRAFT",
-      platformMetadataJson: {
-        composer: "manual_thread_reply",
-      } as never,
-    },
-    select: {
-      id: true,
-    },
-  });
+  if (conversation.platform !== "EMAIL" && conversation.platform !== "SLACK") {
+    redirect(buildThreadRedirect(conversation.id, {
+      reply: "error",
+      message: "Manual reply is not supported for this platform.",
+    }));
+  }
 
+  let message: { id: string } | null = null;
   try {
-    let result:
-      | Awaited<ReturnType<typeof sendWorkspaceGmailReply>>
-      | Awaited<ReturnType<typeof sendWorkspaceSlackReply>>;
-
-    if (conversation.platform === "EMAIL") {
-      result = await sendWorkspaceGmailReply({
+    message = await prisma.message.create({
+      data: {
         workspaceId: authContext.workspaceId,
-        actorUserId: authContext.userId,
-        messageId: message.id,
-      });
-    } else if (conversation.platform === "SLACK") {
-      result = await sendWorkspaceSlackReply({
-        workspaceId: authContext.workspaceId,
-        actorUserId: authContext.userId,
-        messageId: message.id,
-      });
-    } else {
-      throw new Error("Manual reply is not supported for this platform.");
-    }
+        conversationId: conversation.id,
+        platform: conversation.platform,
+        senderType: "USER",
+        direction: "OUTBOUND",
+        bodyText,
+        status: "QUEUED",
+        platformMetadataJson: {
+          composer: "manual_thread_reply",
+          queuedByUserId: authContext.userId,
+          queuedAt: new Date().toISOString(),
+        } as never,
+      },
+      select: {
+        id: true,
+      },
+    });
 
-    if (result.sendStatus !== "ACCEPTED" && result.sendStatus !== "QUEUED") {
-      throw new Error(`Reply send failed with status ${result.sendStatus}.`);
-    }
+    await enqueueRuntimeJob({
+      queueName: WORKER_QUEUE_NAMES.OUTBOUND_SEND,
+      jobType: WORKER_JOB_TYPES.OUTBOUND_SEND_MESSAGE,
+      workspaceId: authContext.workspaceId,
+      payload: {
+        workspaceId: authContext.workspaceId,
+        conversationId: conversation.id,
+        messageId: message.id,
+        integrationId: conversation.integrationId,
+        platform: conversation.platform,
+        requestedByUserId: authContext.userId,
+        sendSource: "manual",
+        approvalRequestId: null,
+        requestedAt: new Date().toISOString(),
+      },
+      dedupeKey: `outbound-send:${authContext.workspaceId}:${message.id}:manual`,
+      retryPolicy: {
+        maxAttempts: 3,
+      },
+    });
 
     redirect(buildThreadRedirect(conversation.id, {
-      reply: "sent",
+      reply: "queued",
     }));
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
+    }
+
+    if (message) {
+      await prisma.message.updateMany({
+        where: {
+          id: message.id,
+          workspaceId: authContext.workspaceId,
+          status: "QUEUED",
+        },
+        data: {
+          status: "FAILED",
+        },
+      });
     }
 
     redirect(buildThreadRedirect(conversation.id, {
@@ -281,6 +306,11 @@ export async function unassignConversationAgentAction(formData: FormData) {
 export async function runConversationAgentAction(formData: FormData) {
   const authContext = await requirePermission(PERMISSIONS.ASSIGN_AGENTS);
   const conversationId = String(formData.get("conversationId") ?? "").trim();
+  const submittedRequestNonce = String(
+    formData.get("requestNonce") ?? "",
+  ).trim();
+  const requestNonce =
+    submittedRequestNonce || `bucket-${Math.floor(Date.now() / 15_000)}`;
 
   if (!conversationId) {
     redirect("/");
@@ -308,36 +338,34 @@ export async function runConversationAgentAction(formData: FormData) {
   }
 
   try {
-    const result = await generateDraftAndCreateApprovalForWorkspace({
+    await enqueueRuntimeJob({
+      queueName: WORKER_QUEUE_NAMES.AGENT,
+      jobType: WORKER_JOB_TYPES.AGENT_RUN_MANUAL,
       workspaceId: authContext.workspaceId,
-      actorUserId: authContext.userId,
-      conversationId: conversation.id,
-      trigger: {
-        triggerType: AGENT_TRIGGER_TYPES.MANUAL_REGENERATE,
-        triggerReason: "Manual run requested from conversation thread UI.",
-        metadata: {
-          source: "conversation_thread_ui",
-        },
+      payload: {
+        workspaceId: authContext.workspaceId,
+        conversationId: conversation.id,
+        requestedByUserId: authContext.userId,
+        requestedAt: new Date().toISOString(),
+        requestNonce,
+        triggerType: "manual_regenerate",
+      },
+      dedupeKey: [
+        "agent",
+        "manual_regenerate",
+        authContext.workspaceId,
+        conversation.id,
+        authContext.userId,
+        requestNonce,
+      ].join(":"),
+      retryPolicy: {
+        maxAttempts: 1,
       },
     });
 
-    if (result.status === "escalated") {
-      redirect(
-        buildThreadRedirect(conversation.id, {
-          agentRun: "escalated",
-          agentRunReason:
-            result.escalation.escalationReasonCode ?? "escalation_required",
-          agentRunMessage:
-            result.escalation.escalationSummary ||
-            "Escalation required. Draft was not created.",
-        }),
-      );
-    }
-
     redirect(
       buildThreadRedirect(conversation.id, {
-        agentRun: "created",
-        approvalRequestId: result.approval.approvalRequestId,
+        agentRun: "queued",
       }),
     );
   } catch (error) {

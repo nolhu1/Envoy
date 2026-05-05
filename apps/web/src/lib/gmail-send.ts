@@ -1,11 +1,8 @@
-import "server-only";
-
 import {
   buildGmailReplyPayload,
   canIntegrationSend,
   createCanonicalOutboundPersistenceHandlers,
   GmailConnector,
-  InMemoryIdempotencyService,
   runOutboundOrchestration,
   type ConnectorContext,
   type OutboundDiagnostic,
@@ -13,23 +10,23 @@ import {
   type OutboundSendInput,
   type OAuthAuthMaterial,
   type ProviderSendExecutionResult,
-} from "@envoy/connectors";
+} from "../../../../packages/connectors/src/index";
 import {
   createPrismaCanonicalOutboundWriter,
+  createPrismaIdempotencyService,
   getPrisma,
   rotateSecret,
   resolveConnectorContextForWorkspaceIntegration,
-} from "@envoy/db";
+} from "../../../../packages/db/src/index";
 
-import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 import {
   buildEnvoyEvent,
   ENVOY_EVENT_ENTITY_TYPES,
   ENVOY_EVENT_SOURCES,
   ENVOY_EVENT_TYPES,
   publishEnvoyEvent,
-} from "@/lib/event-publisher";
-import { sanitizeDiagnostics } from "@/lib/security";
+} from "./event-publisher";
+import { sanitizeDiagnostics } from "./security";
 
 type JsonObject = Record<string, unknown>;
 
@@ -101,7 +98,9 @@ type SendableMessageRecord = {
 };
 
 const SENDABLE_OUTBOUND_STATUSES = new Set(["DRAFT", "APPROVED", "QUEUED"]);
-const gmailSendIdempotencyService = new InMemoryIdempotencyService();
+const gmailSendIdempotencyService = createPrismaIdempotencyService({
+  lockOwner: "web:gmail-send",
+});
 const gmailConnector = new GmailConnector();
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -578,6 +577,15 @@ export async function sendWorkspaceGmailReply(input: {
     },
     approvalContext,
     requestedAt: new Date(),
+    idempotencyKey: [
+      "gmail",
+      "send",
+      input.workspaceId,
+      message.conversation.integration.id,
+      message.conversation.id,
+      message.id,
+      approvalContext?.approvalRequestId ?? "manual",
+    ].join(":"),
   };
 
   const writer = createPrismaCanonicalOutboundWriter({
@@ -677,31 +685,37 @@ export async function sendWorkspaceGmailReply(input: {
     },
   );
 
-  await publishEnvoyEvent(
-    buildEnvoyEvent({
-      eventType:
-        result.sendStatus === "FAILED"
-          ? ENVOY_EVENT_TYPES.MESSAGE_SEND_FAILED
-          : ENVOY_EVENT_TYPES.MESSAGE_SENT,
-      workspaceId: input.workspaceId,
-      entityType: ENVOY_EVENT_ENTITY_TYPES.MESSAGE,
-      entityId: result.messageId,
-      source: ENVOY_EVENT_SOURCES.API,
-      payload: {
-        conversationId: result.conversationId,
-        messageId: result.messageId,
-        integrationId: result.integrationId,
-        platform: "EMAIL",
-        externalMessageId: result.externalMessageId ?? null,
-        senderType: message.senderType,
-        direction: message.direction,
-        status: result.sendStatus === "FAILED" ? "FAILED" : "SENT",
-        metadata: {
-          provider: "gmail",
+  const isIdempotentDuplicate = result.diagnostics?.some(
+    (diagnostic) => diagnostic.code === "OUTBOUND_IDEMPOTENT_DUPLICATE",
+  ) === true;
+
+  if (result.sendStatus !== "REJECTED" && !isIdempotentDuplicate) {
+    await publishEnvoyEvent(
+      buildEnvoyEvent({
+        eventType:
+          result.sendStatus === "FAILED"
+            ? ENVOY_EVENT_TYPES.MESSAGE_SEND_FAILED
+            : ENVOY_EVENT_TYPES.MESSAGE_SENT,
+        workspaceId: input.workspaceId,
+        entityType: ENVOY_EVENT_ENTITY_TYPES.MESSAGE,
+        entityId: result.messageId,
+        source: ENVOY_EVENT_SOURCES.API,
+        payload: {
+          conversationId: result.conversationId,
+          messageId: result.messageId,
+          integrationId: result.integrationId,
+          platform: "EMAIL",
+          externalMessageId: result.externalMessageId ?? null,
+          senderType: message.senderType,
+          direction: message.direction,
+          status: result.sendStatus === "FAILED" ? "FAILED" : "SENT",
+          metadata: {
+            provider: "gmail",
+          },
         },
-      },
-    }),
-  );
+      }),
+    );
+  }
 
   return {
     integrationId: result.integrationId,
@@ -715,6 +729,19 @@ export async function sendWorkspaceGmailReply(input: {
 export async function sendCurrentWorkspaceGmailReply(input: {
   messageId: string;
 }) {
+  const permissionsPath = "./permissions";
+  const importPermissions = (specifier: string) => import(specifier) as Promise<{
+    PERMISSIONS: {
+      SEND_MESSAGES: "send_messages";
+    };
+    requirePermission: (permission: "send_messages") => Promise<{
+      workspaceId: string;
+      userId: string;
+    }>;
+  }>;
+  const { PERMISSIONS, requirePermission } = await importPermissions(
+    permissionsPath,
+  );
   const authContext = await requirePermission(PERMISSIONS.SEND_MESSAGES);
 
   return sendWorkspaceGmailReply({

@@ -56,18 +56,24 @@ function renderReviewAlert(input: {
   reviewStatus: string | undefined;
   reviewMessage: string | undefined;
 }) {
-  if (input.reviewStatus === "approved") {
+  if (
+    input.reviewStatus === "approved" ||
+    input.reviewStatus === "approved-queued"
+  ) {
     return (
-      <Alert severity="success" title="Draft approved">
-        The draft was approved successfully.
+      <Alert severity="success" title="Draft approved and queued">
+        The draft was approved and queued for sending.
       </Alert>
     );
   }
 
-  if (input.reviewStatus === "edit-approved") {
+  if (
+    input.reviewStatus === "edit-approved" ||
+    input.reviewStatus === "edit-approved-queued"
+  ) {
     return (
-      <Alert severity="success" title="Draft edited and approved">
-        The reviewed draft was saved and approved successfully.
+      <Alert severity="success" title="Draft edited, approved, and queued">
+        The reviewed draft was saved, approved, and queued for sending.
       </Alert>
     );
   }

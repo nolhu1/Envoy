@@ -91,10 +91,12 @@ export default async function ApprovalQueuePage({
             />
           }
         >
-          <QueueTable
+          <QueueTable<ApprovalQueueListRow>
             rows={rows}
-            getRowId={(row) => row.approvalRequestId}
-            getRowHref={(row) => `/approvals/${row.approvalRequestId}`}
+            getRowId={(row: ApprovalQueueListRow) => row.approvalRequestId}
+            getRowHref={(row: ApprovalQueueListRow) =>
+              `/approvals/${row.approvalRequestId}`
+            }
             gridTemplateColumns="minmax(16rem,1.6fr) minmax(16rem,1.4fr) minmax(11rem,0.9fr) minmax(10rem,0.8fr)"
             emptyState={
               <QueueEmpty
@@ -116,7 +118,7 @@ export default async function ApprovalQueuePage({
                 id: "conversation",
                 header: "Conversation",
                 mobileLabel: "Conversation",
-                cell: (row) => (
+                cell: (row: ApprovalQueueListRow) => (
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="platform">
@@ -137,7 +139,7 @@ export default async function ApprovalQueuePage({
                 id: "draft",
                 header: "Draft preview",
                 mobileLabel: "Draft",
-                cell: (row) => (
+                cell: (row: ApprovalQueueListRow) => (
                   <p className="line-clamp-3 text-sm leading-5">
                     {row.draftPreview}
                   </p>
@@ -147,13 +149,14 @@ export default async function ApprovalQueuePage({
                 id: "assignment",
                 header: "Assignment",
                 mobileLabel: "Assignment",
-                cell: (row) => row.assignedAgentLabel ?? "Unassigned",
+                cell: (row: ApprovalQueueListRow) =>
+                  row.assignedAgentLabel ?? "Unassigned",
               },
               {
                 id: "timestamp",
                 header: view === "reviewed" ? "Reviewed" : "Created",
                 mobileLabel: view === "reviewed" ? "Reviewed" : "Created",
-                cell: (row) =>
+                cell: (row: ApprovalQueueListRow) =>
                   formatTimestamp(view === "reviewed" ? row.reviewedAt : row.createdAt),
               },
             ]}

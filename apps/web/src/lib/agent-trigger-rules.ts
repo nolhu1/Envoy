@@ -1,9 +1,7 @@
-import "server-only";
-
 import {
   AGENT_TRIGGER_TYPES,
   type AgentTriggerType,
-} from "@envoy/db";
+} from "../../../../packages/db/src/index";
 
 export const AGENT_TRIGGER_RULE_TYPES: readonly AgentTriggerType[] = [
   AGENT_TRIGGER_TYPES.INBOUND_MESSAGE,

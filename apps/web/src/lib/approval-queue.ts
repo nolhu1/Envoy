@@ -4,6 +4,7 @@ import {
   APPROVAL_REQUEST_STATUSES,
   createRevisedApprovalRequestFromRejectedApproval,
   getApprovalRequestDetail,
+  getPrisma,
   listApprovalRequests,
   reviewApprovalRequest,
   type ApprovalQueueFilter,
@@ -24,9 +25,14 @@ import {
   ENVOY_EVENT_TYPES,
   publishEnvoyEvent,
 } from "@/lib/event-publisher";
-import { sendWorkspaceGmailReply } from "@/lib/gmail-send";
 import { hasPermission, PERMISSIONS, requirePermission } from "@/lib/permissions";
-import { sendWorkspaceSlackReply } from "@/lib/slack-send";
+import {
+  WORKER_JOB_TYPES,
+} from "../../../worker/src/jobs";
+import {
+  WORKER_QUEUE_NAMES,
+  enqueueRuntimeJob,
+} from "../../../worker/src/queues";
 
 type QueueConversationDisplay = {
   platform: ApprovalQueueListItem["conversation"]["platform"];
@@ -71,13 +77,18 @@ type WorkspaceScopedApprovalDecisionInput = {
   nextConversationState?: Parameters<typeof reviewApprovalRequest>[0]["nextConversationState"];
 };
 
-type ApprovedDraftSendResult =
-  | Awaited<ReturnType<typeof sendWorkspaceGmailReply>>
-  | Awaited<ReturnType<typeof sendWorkspaceSlackReply>>;
+type ApprovedDraftQueueResult = {
+  runtimeJobId: string;
+  bullJobId: string | null;
+  created: boolean;
+  queued: boolean;
+  approvalRequestId: string;
+  draftMessageId: string;
+};
 
 export type ApprovalContinuationResult = {
   review: Awaited<ReturnType<typeof reviewApprovalRequest>>;
-  send: ApprovedDraftSendResult | null;
+  queue: ApprovedDraftQueueResult | null;
 };
 
 export type ApprovalRevisionResult = Awaited<
@@ -132,6 +143,10 @@ function buildTimestamp(
   message: ApprovalRequestDetail["recentMessages"][number],
 ) {
   return message.sentAt || message.receivedAt || message.createdAt;
+}
+
+function toPrismaJsonValue(value: unknown) {
+  return (value ?? null) as never;
 }
 
 function toApprovalQueueListRow(item: ApprovalQueueListItem): ApprovalQueueListRow {
@@ -240,11 +255,11 @@ export async function approveWorkspaceApprovalRequest(
 
   return {
     review,
-    send: await sendApprovedDraftMessage({
+    queue: await queueApprovedDraftSend({
       workspaceId: input.workspaceId,
       actorUserId: input.actorUserId,
+      approvalRequestId: review.approvalRequestId,
       draftMessageId: review.draftMessageId,
-      platform: approvalDetail.conversation.platform,
     }),
   };
 }
@@ -335,11 +350,11 @@ export async function editAndApproveWorkspaceApprovalRequest(
 
   return {
     review,
-    send: await sendApprovedDraftMessage({
+    queue: await queueApprovedDraftSend({
       workspaceId: input.workspaceId,
       actorUserId: input.actorUserId,
+      approvalRequestId: review.approvalRequestId,
       draftMessageId: review.draftMessageId,
-      platform: approvalDetail.conversation.platform,
     }),
   };
 }
@@ -454,23 +469,147 @@ function assertCanSendApprovedDrafts(role: Parameters<typeof hasPermission>[0]) 
   }
 }
 
-async function sendApprovedDraftMessage(input: {
+async function queueApprovedDraftSend(input: {
   workspaceId: string;
   actorUserId: string;
+  approvalRequestId: string;
   draftMessageId: string;
-  platform: "EMAIL" | "SLACK";
-}) {
-  if (input.platform === "EMAIL") {
-    return sendWorkspaceGmailReply({
+}): Promise<ApprovedDraftQueueResult> {
+  const prisma = getPrisma();
+  const approvalRequest = await prisma.approvalRequest.findFirst({
+    where: {
+      id: input.approvalRequestId,
       workspaceId: input.workspaceId,
-      actorUserId: input.actorUserId,
-      messageId: input.draftMessageId,
-    });
+    },
+    select: {
+      id: true,
+      workspaceId: true,
+      conversationId: true,
+      draftMessageId: true,
+      status: true,
+      draftMessage: {
+        select: {
+          id: true,
+          workspaceId: true,
+          conversationId: true,
+          platform: true,
+          senderType: true,
+          direction: true,
+          status: true,
+          platformMetadataJson: true,
+        },
+      },
+      conversation: {
+        select: {
+          id: true,
+          workspaceId: true,
+          integrationId: true,
+          platform: true,
+        },
+      },
+    },
+  });
+
+  if (!approvalRequest) {
+    throw new Error("The approved draft could not be loaded for queueing.");
   }
 
-  return sendWorkspaceSlackReply({
+  if (approvalRequest.status !== APPROVAL_REQUEST_STATUSES.APPROVED) {
+    throw new Error("Only approved drafts can be queued for send.");
+  }
+
+  if (
+    approvalRequest.draftMessageId !== input.draftMessageId ||
+    approvalRequest.draftMessage.id !== input.draftMessageId
+  ) {
+    throw new Error("Approval request draft does not match the queued message.");
+  }
+
+  if (
+    approvalRequest.conversationId !== approvalRequest.draftMessage.conversationId ||
+    approvalRequest.conversation.id !== approvalRequest.conversationId
+  ) {
+    throw new Error("Approval request conversation does not match the queued message.");
+  }
+
+  if (
+    approvalRequest.draftMessage.workspaceId !== input.workspaceId ||
+    approvalRequest.conversation.workspaceId !== input.workspaceId
+  ) {
+    throw new Error("Approval request draft does not belong to this workspace.");
+  }
+
+  if (
+    approvalRequest.draftMessage.senderType !== "AGENT" ||
+    approvalRequest.draftMessage.direction !== "OUTBOUND"
+  ) {
+    throw new Error("Only outbound AI drafts can be queued after approval.");
+  }
+
+  if (
+    approvalRequest.draftMessage.status !== "APPROVED" &&
+    approvalRequest.draftMessage.status !== "QUEUED"
+  ) {
+    throw new Error("Approved draft is not in a queueable message state.");
+  }
+
+  if (
+    approvalRequest.conversation.platform !== "EMAIL" &&
+    approvalRequest.conversation.platform !== "SLACK"
+  ) {
+    throw new Error("Approved draft platform is not send-capable.");
+  }
+
+  const enqueueResult = await enqueueRuntimeJob({
+    queueName: WORKER_QUEUE_NAMES.OUTBOUND_SEND,
+    jobType: WORKER_JOB_TYPES.OUTBOUND_SEND_MESSAGE,
     workspaceId: input.workspaceId,
-    actorUserId: input.actorUserId,
-    messageId: input.draftMessageId,
+    payload: {
+      workspaceId: input.workspaceId,
+      conversationId: approvalRequest.conversationId,
+      messageId: approvalRequest.draftMessageId,
+      integrationId: approvalRequest.conversation.integrationId,
+      platform: approvalRequest.conversation.platform,
+      requestedByUserId: input.actorUserId,
+      sendSource: "approval",
+      approvalRequestId: approvalRequest.id,
+      requestedAt: new Date().toISOString(),
+    },
+    dedupeKey:
+      `outbound-send:${input.workspaceId}:${approvalRequest.draftMessageId}` +
+      `:approval:${approvalRequest.id}`,
+    retryPolicy: {
+      maxAttempts: 3,
+    },
   });
+
+  await prisma.message.updateMany({
+    where: {
+      id: approvalRequest.draftMessageId,
+      workspaceId: input.workspaceId,
+      status: {
+        in: ["APPROVED", "QUEUED"],
+      },
+    },
+    data: {
+      status: "QUEUED",
+      platformMetadataJson: toPrismaJsonValue({
+        ...(approvalRequest.draftMessage.platformMetadataJson &&
+        typeof approvalRequest.draftMessage.platformMetadataJson === "object" &&
+        !Array.isArray(approvalRequest.draftMessage.platformMetadataJson)
+          ? approvalRequest.draftMessage.platformMetadataJson
+          : {}),
+        queuedFromApproval: true,
+        approvalRequestId: approvalRequest.id,
+        queuedByUserId: input.actorUserId,
+        queuedAt: new Date().toISOString(),
+      }),
+    },
+  });
+
+  return {
+    ...enqueueResult,
+    approvalRequestId: approvalRequest.id,
+    draftMessageId: approvalRequest.draftMessageId,
+  };
 }

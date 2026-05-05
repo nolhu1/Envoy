@@ -1,5 +1,3 @@
-import "server-only";
-
 const REDACTED_TEXT = "[REDACTED]";
 const MAX_SANITIZED_STRING_LENGTH = 400;
 const MAX_DIAGNOSTIC_DEPTH = 6;

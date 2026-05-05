@@ -1,5 +1,3 @@
-import "server-only";
-
 import { randomUUID } from "node:crypto";
 
 import {
@@ -15,11 +13,21 @@ import {
   type EnvoyEventPayloadByType,
   type EnvoyEventSource,
   type EnvoyEventType,
-} from "@envoy/events";
+} from "../../../../packages/events/src/index";
+import {
+  createEventJournalRecord,
+  createEventProcessingAttempt,
+  EventJournalStatus,
+  EventProcessingStatus,
+  finishEventProcessingAttempt,
+  getEventJournalRecordByEventId,
+  markEventJournalFailed,
+  markEventJournalProcessed,
+  markEventJournalProcessing,
+} from "../../../../packages/db/src/index";
 
-import { appendActionLogForEnvoyEvent } from "@/lib/action-log";
-import { executeAutomaticAgentTriggerForEvent } from "@/lib/agent-trigger-runtime";
-import { sanitizeErrorMessage } from "@/lib/security";
+import { appendActionLogForEnvoyEvent } from "./action-log";
+import { sanitizeErrorMessage } from "./security";
 
 const globalForEnvoyEvents = globalThis as typeof globalThis & {
   envoyEventPublisher?: InMemoryEventPublisher | NoOpEventPublisher;
@@ -59,8 +67,19 @@ export function buildEnvoyEvent<TType extends EnvoyEventType>(input: {
 }
 
 export async function publishEnvoyEvent(event: EnvoyEvent) {
+  const existingRecord = await getEventJournalRecordByEventId(event.eventId);
+  await createEventJournalRecord(event, {
+    metadataJson: {
+      publisher: "web_inline",
+      inlineHooksEnabled: true,
+    },
+  });
+
   const result = await getEventPublisher().publish(event);
-  await runPostPublishEventHooks([event]);
+  if (!shouldSkipPostPublishHooks(existingRecord?.status ?? null)) {
+    await runPostPublishEventHooks([event]);
+  }
+
   return result;
 }
 
@@ -74,43 +93,189 @@ export async function publishEnvoyEvents(events: EnvoyEvent[]) {
     };
   }
 
+  const uniqueEvents = uniqueEventsByEventId(events);
+  const existingRecords = new Map(
+    (
+      await Promise.all(
+        uniqueEvents.map((event) => getEventJournalRecordByEventId(event.eventId)),
+      )
+    )
+      .filter((record): record is NonNullable<typeof record> =>
+        Boolean(record),
+      )
+      .map((record) => [record.eventId, record.status]),
+  );
+
+  await Promise.all(
+    uniqueEvents.map((event) =>
+      createEventJournalRecord(event, {
+        metadataJson: {
+          publisher: "web_inline",
+          inlineHooksEnabled: true,
+          bulkPublish: true,
+        },
+      }),
+    ),
+  );
+
   const result = await getEventPublisher().publishMany(events);
-  await runPostPublishEventHooks(events);
+  await runPostPublishEventHooks(
+    uniqueEvents.filter(
+      (event) =>
+        !shouldSkipPostPublishHooks(existingRecords.get(event.eventId) ?? null),
+    ),
+  );
+
   return result;
+}
+
+function uniqueEventsByEventId(events: EnvoyEvent[]) {
+  const seenEventIds = new Set<string>();
+  const uniqueEvents: EnvoyEvent[] = [];
+
+  for (const event of events) {
+    if (seenEventIds.has(event.eventId)) {
+      continue;
+    }
+
+    seenEventIds.add(event.eventId);
+    uniqueEvents.push(event);
+  }
+
+  return uniqueEvents;
+}
+
+function shouldSkipPostPublishHooks(status: string | null) {
+  return (
+    status === EventJournalStatus.PROCESSING ||
+    status === EventJournalStatus.PROCESSED
+  );
 }
 
 async function runPostPublishEventHooks(events: EnvoyEvent[]) {
   for (const event of events) {
-    try {
-      await appendActionLogForEnvoyEvent(event);
-    } catch (error) {
-      console.error(
-        "[event-publisher] action-log hook failed",
-        JSON.stringify({
-          eventId: event.eventId,
-          eventType: event.eventType,
-          workspaceId: event.workspaceId,
-          error: sanitizeErrorMessage(error, "Unknown action-log hook error."),
-        }),
-      );
+    await markEventJournalProcessing(event.eventId);
+
+    const actionLogStatus = await runActionLogProjector(event);
+    const agentTriggerStatus = await runAgentTriggerDispatcher(event);
+
+    if (
+      actionLogStatus === EventProcessingStatus.FAILED ||
+      agentTriggerStatus === EventProcessingStatus.FAILED
+    ) {
+      await markEventJournalFailed(event.eventId, {
+        message: "One or more inline event consumers failed.",
+        consumers: {
+          actionLogProjector: actionLogStatus,
+          agentTriggerDispatcher: agentTriggerStatus,
+        },
+      });
+      continue;
     }
 
-    try {
-      await executeAutomaticAgentTriggerForEvent(event);
-    } catch (error) {
-      console.error(
-        "[event-publisher] automatic trigger hook failed",
-        JSON.stringify({
-          eventId: event.eventId,
-          eventType: event.eventType,
-          workspaceId: event.workspaceId,
-          error: sanitizeErrorMessage(
-            error,
-            "Unknown automatic trigger hook error.",
-          ),
-        }),
-      );
+    await markEventJournalProcessed(event.eventId);
+  }
+}
+
+async function runActionLogProjector(event: EnvoyEvent) {
+  const attempt = await createEventProcessingAttempt({
+    eventId: event.eventId,
+    consumer: "action_log_projector",
+  });
+
+  try {
+    await appendActionLogForEnvoyEvent(event);
+    await finishEventProcessingAttempt({
+      id: attempt.id,
+      status: EventProcessingStatus.SUCCEEDED,
+      resultJson: {
+        projected: true,
+      },
+    });
+
+    return EventProcessingStatus.SUCCEEDED;
+  } catch (error) {
+    await finishEventProcessingAttempt({
+      id: attempt.id,
+      status: EventProcessingStatus.FAILED,
+      error,
+    });
+    console.error(
+      "[event-publisher] action-log hook failed",
+      JSON.stringify({
+        eventId: event.eventId,
+        eventType: event.eventType,
+        workspaceId: event.workspaceId,
+        error: sanitizeErrorMessage(error, "Unknown action-log hook error."),
+      }),
+    );
+
+    return EventProcessingStatus.FAILED;
+  }
+}
+
+async function runAgentTriggerDispatcher(event: EnvoyEvent) {
+  const attempt = await createEventProcessingAttempt({
+    eventId: event.eventId,
+    consumer: "agent_trigger_dispatcher",
+  });
+
+  try {
+    const agentTriggerJobsPath = "./agent-trigger-jobs";
+    const importJobs = (specifier: string) => import(specifier) as Promise<{
+      enqueueAutomaticAgentTriggerForEvent: (event: EnvoyEvent) => Promise<{
+        status: string;
+        reason?: string;
+        runtimeJobId?: string;
+        bullJobId?: string | null;
+        created?: boolean;
+        queued?: boolean;
+      }>;
+    }>;
+    const { enqueueAutomaticAgentTriggerForEvent } = await importJobs(
+      agentTriggerJobsPath,
+    );
+    const result = await enqueueAutomaticAgentTriggerForEvent(event);
+
+    if (result.status === "ignored") {
+      await finishEventProcessingAttempt({
+        id: attempt.id,
+        status: EventProcessingStatus.SKIPPED,
+        resultJson: {
+          status: result.status,
+          reason: result.reason,
+        },
+      });
+      return EventProcessingStatus.SKIPPED;
     }
+
+    await finishEventProcessingAttempt({
+      id: attempt.id,
+      status: EventProcessingStatus.SUCCEEDED,
+      resultJson: result,
+    });
+
+    return EventProcessingStatus.SUCCEEDED;
+  } catch (error) {
+    await finishEventProcessingAttempt({
+      id: attempt.id,
+      status: EventProcessingStatus.FAILED,
+      error,
+    });
+    console.error(
+      "[event-publisher] automatic trigger hook failed",
+      JSON.stringify({
+        eventId: event.eventId,
+        eventType: event.eventType,
+        workspaceId: event.workspaceId,
+        error: sanitizeErrorMessage(
+          error,
+          "Unknown automatic trigger hook error.",
+        ),
+      }),
+    );
+
+    return EventProcessingStatus.FAILED;
   }
 }
 

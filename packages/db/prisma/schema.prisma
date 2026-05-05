@@ -80,6 +80,44 @@ enum ActorType {
   INTEGRATION
 }
 
+enum EventJournalStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  DEAD_LETTERED
+  REPLAY_REQUESTED
+}
+
+enum EventProcessingStatus {
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  SKIPPED
+}
+
+enum IdempotencyRecordStatus {
+  STARTED
+  COMPLETED
+  FAILED
+  DUPLICATE
+}
+
+enum RuntimeJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  DEAD_LETTERED
+  CANCELLED
+}
+
+enum RuntimeJobAttemptStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
 model Workspace {
   id            String        @id @default(uuid())
   name          String
@@ -99,6 +137,12 @@ model Workspace {
   approvalRequests ApprovalRequest[]
   actionLogs    ActionLog[]
   conversationFacts ConversationFact[]
+  eventJournals EventJournal[]
+  eventProcessingAttempts EventProcessingAttempt[]
+  idempotencyRecords IdempotencyRecord[]
+  runtimeJobs RuntimeJob[]
+  runtimeJobAttempts RuntimeJobAttempt[]
+  deadLetterRecords DeadLetterRecord[]
 }
 
 model User {
@@ -441,4 +485,168 @@ model ConversationFact {
   @@index([workspaceId, conversationId])
   @@index([conversationId, key])
   @@index([sourceMessageId])
+}
+
+model EventJournal {
+  id                String             @id @default(uuid())
+  eventId           String             @unique
+  workspaceId       String
+  eventType         String
+  entityType        String
+  entityId          String
+  source            String
+  version           Int
+  occurredAt        DateTime
+  payloadJson       Json
+  status            EventJournalStatus @default(PENDING)
+  publishedAt       DateTime           @default(now())
+  availableAt       DateTime?
+  processedAt       DateTime?
+  failedAt          DateTime?
+  deadLetteredAt    DateTime?
+  replayRequestedAt DateTime?
+  replayOfEventId   String?
+  lastErrorJson     Json?
+  metadataJson      Json?
+
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  processingAttempts EventProcessingAttempt[]
+
+  @@index([workspaceId, eventType, occurredAt])
+  @@index([workspaceId, status, availableAt])
+  @@index([entityType, entityId, occurredAt])
+  @@index([replayOfEventId])
+}
+
+model EventProcessingAttempt {
+  id             String                @id @default(uuid())
+  workspaceId    String
+  eventJournalId String
+  eventId        String
+  consumer       String
+  status         EventProcessingStatus
+  attempt        Int
+  startedAt      DateTime              @default(now())
+  finishedAt     DateTime?
+  nextRetryAt    DateTime?
+  errorJson      Json?
+  resultJson     Json?
+  workerJobId    String?
+  bullJobId      String?
+
+  workspace      Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  eventJournal   EventJournal          @relation(fields: [eventJournalId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, consumer, attempt])
+  @@index([workspaceId, consumer, status, nextRetryAt])
+  @@index([workerJobId])
+}
+
+model IdempotencyRecord {
+  id                String                  @id @default(uuid())
+  workspaceId       String
+  scope             String
+  key               String
+  status            IdempotencyRecordStatus
+  integrationId     String?
+  operationType     String
+  resourceType      String?
+  resourceId        String?
+  externalEventId   String?
+  requestHash       String?
+  resultSummaryJson Json?
+  startedAt         DateTime                @default(now())
+  completedAt       DateTime?
+  expiresAt         DateTime?
+  lockedAt          DateTime?
+  lockOwner         String?
+  failedAt          DateTime?
+  lastErrorJson     Json?
+
+  workspace         Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([scope, key])
+  @@index([workspaceId, scope, status])
+  @@index([workspaceId, resourceType, resourceId])
+  @@index([workspaceId, externalEventId])
+  @@index([expiresAt])
+}
+
+model RuntimeJob {
+  id                  String           @id @default(uuid())
+  workspaceId         String
+  queueName           String
+  jobType             String
+  dedupeKey           String?
+  bullJobId           String?
+  status              RuntimeJobStatus @default(QUEUED)
+  payloadJson         Json
+  resultJson          Json?
+  attemptsMade        Int              @default(0)
+  maxAttempts         Int
+  runAt               DateTime?
+  queuedAt            DateTime         @default(now())
+  startedAt           DateTime?
+  completedAt         DateTime?
+  failedAt            DateTime?
+  deadLetteredAt      DateTime?
+  cancelledAt         DateTime?
+  lastErrorJson       Json?
+  replayOfJobId       String?
+  sourceEventId       String?
+  idempotencyRecordId String?
+
+  workspace           Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  attempts            RuntimeJobAttempt[]
+
+  @@unique([queueName, dedupeKey])
+  @@index([workspaceId, queueName, status])
+  @@index([workspaceId, sourceEventId])
+  @@index([bullJobId])
+}
+
+model RuntimeJobAttempt {
+  id           String                  @id @default(uuid())
+  workspaceId  String
+  runtimeJobId String
+  queueName    String
+  jobType      String
+  attempt      Int
+  workerId     String?
+  startedAt    DateTime                @default(now())
+  finishedAt   DateTime?
+  status       RuntimeJobAttemptStatus
+  errorJson    Json?
+  resultJson   Json?
+
+  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runtimeJob   RuntimeJob              @relation(fields: [runtimeJobId], references: [id], onDelete: Cascade)
+
+  @@unique([runtimeJobId, attempt])
+  @@index([workspaceId, queueName, status])
+}
+
+model DeadLetterRecord {
+  id                 String    @id @default(uuid())
+  workspaceId        String
+  kind               String
+  sourceEventId      String?
+  runtimeJobId       String?
+  queueName          String?
+  reason             String
+  payloadJson        Json
+  errorJson          Json?
+  createdAt          DateTime  @default(now())
+  resolvedAt         DateTime?
+  replayRequestedAt  DateTime?
+  replayedAsEventId  String?
+  replayedAsJobId    String?
+  resolutionJson     Json?
+
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, kind, createdAt])
+  @@index([workspaceId, replayRequestedAt])
+  @@index([sourceEventId])
+  @@index([runtimeJobId])
 }

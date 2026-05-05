@@ -1,6 +1,14 @@
 import type { WorkerRetryPolicy } from "./retry";
 
 export const WORKER_JOB_TYPES = {
+  MAINTENANCE_HEALTH_CHECK: "maintenance.health_check",
+  MAINTENANCE_RECOVER_STUCK_JOBS: "maintenance.recover_stuck_jobs",
+  EVENTS_PROCESS_EVENT_PLACEHOLDER: "events.process_event_placeholder",
+  SYNC_GMAIL_INTEGRATION: "sync.gmail_integration",
+  SYNC_SLACK_INTEGRATION: "sync.slack_integration",
+  OUTBOUND_SEND_MESSAGE: "outbound.send_message",
+  AGENT_RUN_FROM_TRIGGER: "agent.run_from_trigger",
+  AGENT_RUN_MANUAL: "agent.run_manual",
   CONNECTOR_SYNC: "connector_sync",
   CONNECTOR_PROCESS_EVENT: "connector_process_event",
   REMINDER: "reminder",
@@ -51,7 +59,71 @@ export type AgentRunJobPayload = {
   triggerEventId?: string | null;
 };
 
+export type ManualIntegrationSyncReason = "manual" | "initial" | "retry" | "replay";
+
+export type IntegrationSyncJobPayload = {
+  workspaceId: string;
+  integrationId: string;
+  requestedByUserId: string | null;
+  reason: ManualIntegrationSyncReason;
+  requestedAt: string;
+};
+
+export type OutboundSendSource = "manual" | "approval";
+
+export type OutboundSendMessageJobPayload = {
+  workspaceId: string;
+  conversationId: string;
+  messageId: string;
+  integrationId: string;
+  platform: "EMAIL" | "SLACK";
+  requestedByUserId: string | null;
+  sendSource: OutboundSendSource;
+  approvalRequestId: string | null;
+  requestedAt: string;
+};
+
+export type AgentRunFromTriggerJobPayload = {
+  workspaceId: string;
+  conversationId: string;
+  triggerType: "inbound_message" | "approval_rejected";
+  sourceEventId: string;
+  sourceMessageId: string | null;
+  sourceApprovalRequestId: string | null;
+  requestedAt: string;
+};
+
+export type AgentRunManualJobPayload = {
+  workspaceId: string;
+  conversationId: string;
+  requestedByUserId: string;
+  requestedAt: string;
+  requestNonce: string;
+  triggerType: "manual_regenerate";
+};
+
 export type WorkerJobPayloadByType = {
+  "maintenance.health_check": {
+    workspaceId: string;
+    requestedAt?: string | null;
+    fail?: boolean | null;
+    failRetryable?: boolean | null;
+  };
+  "maintenance.recover_stuck_jobs": {
+    workspaceId: string;
+    requestedAt?: string | null;
+    staleAfterMs?: number | null;
+    limit?: number | null;
+  };
+  "events.process_event_placeholder": {
+    workspaceId: string;
+    eventId: string;
+  };
+  "sync.gmail_integration": IntegrationSyncJobPayload;
+  "sync.slack_integration": IntegrationSyncJobPayload;
+  "outbound.send_message": OutboundSendMessageJobPayload;
+  "agent.run_from_trigger": AgentRunFromTriggerJobPayload;
+  "agent.run_manual": AgentRunManualJobPayload;
   connector_sync: ConnectorSyncJobPayload;
   connector_process_event: ConnectorProcessEventJobPayload;
   reminder: ReminderJobPayload;

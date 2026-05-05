@@ -1,23 +1,25 @@
-import "server-only";
-
 import {
-  AGENT_TRIGGER_TYPES,
+  createPrismaIdempotencyService,
   getPrisma,
   type AgentTriggerContext,
-  type AgentTriggerType,
-} from "@envoy/db";
+} from "../../../../packages/db/src/index";
 import {
   CONVERSATION_STATES,
-  ENVOY_EVENT_TYPES,
   isTerminalConversationState,
   type EnvoyEvent,
-} from "@envoy/events";
+} from "../../../../packages/events/src/index";
+import type { AgentRunFromTriggerJobPayload } from "../../../worker/src/jobs";
 
-import { generateDraftAndCreateApprovalForWorkspace } from "@/lib/agent-draft-flow";
+import { generateDraftAndCreateApprovalForWorkspace } from "./agent-draft-flow";
 import {
   isAgentTriggerEnabled,
-} from "@/lib/agent-trigger-rules";
-import { toSafeErrorSummary } from "@/lib/agent-run-logging";
+} from "./agent-trigger-rules";
+import { toSafeErrorSummary } from "./agent-run-logging";
+import {
+  buildAutomaticTriggerIdempotencyKey,
+  parseAutomaticAgentTriggerFromEvent,
+  type AutomaticAgentTriggerEventContext,
+} from "./agent-trigger-contract";
 
 const AUTOMATIC_AGENT_TRIGGER_ACTION_TYPES = {
   TRIGGER_RECEIVED: "AGENT_AUTO_TRIGGER_RECEIVED",
@@ -36,139 +38,31 @@ const AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS = {
   DUPLICATE_SOURCE_ALREADY_PROCESSED: "duplicate_source_already_processed",
 } as const;
 
+const agentTriggerIdempotencyService = createPrismaIdempotencyService({
+  lockOwner: "worker:auto-agent-trigger",
+});
+
 type AutomaticAgentTriggerSuppressionReason =
   (typeof AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS)[keyof typeof AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS];
 
-type AutomaticAgentTriggerEventContext = {
-  workspaceId: string;
-  conversationId: string;
-  triggerType: AgentTriggerType;
-  trigger: AgentTriggerContext;
-  sourceEventId: string;
-  sourceEventType: string;
-  sourceEventSource: string;
-};
-
-type AutomaticAgentTriggerParseResult =
+export type AutomaticAgentTriggerExecutionResult =
   | {
       status: "ignored";
       reason: string;
     }
-  | ({
-      status: "accepted";
-    } & AutomaticAgentTriggerEventContext);
-
-const globalForAutomaticAgentRuntime = globalThis as typeof globalThis & {
-  envoyAutomaticAgentTriggerLocks?: Set<string>;
-};
-
-function getAutomaticAgentRuntimeLocks() {
-  if (!globalForAutomaticAgentRuntime.envoyAutomaticAgentTriggerLocks) {
-    globalForAutomaticAgentRuntime.envoyAutomaticAgentTriggerLocks = new Set();
-  }
-
-  return globalForAutomaticAgentRuntime.envoyAutomaticAgentTriggerLocks;
-}
-
-function buildAutomaticTriggerLockKey(
-  context: AutomaticAgentTriggerEventContext,
-) {
-  return [
-    context.workspaceId,
-    context.conversationId,
-    context.triggerType,
-    context.trigger.sourceMessageId ?? "none",
-    context.trigger.sourceApprovalRequestId ?? "none",
-  ].join(":");
-}
-
-function parseAutomaticAgentTriggerFromEvent(
-  event: EnvoyEvent,
-): AutomaticAgentTriggerParseResult {
-  if (event.eventType === ENVOY_EVENT_TYPES.MESSAGE_RECEIVED) {
-    const payload = event.payload;
-    const conversationId = payload.conversationId?.trim();
-    const messageId = payload.messageId?.trim();
-
-    if (!conversationId || !messageId) {
-      return {
-        status: "ignored",
-        reason: "message_received event is missing canonical ids.",
-      };
+  | {
+      status: "suppressed";
+      reason: string;
     }
-
-    if (payload.direction && payload.direction !== "INBOUND") {
-      return {
-        status: "ignored",
-        reason: "message_received event is not inbound.",
-      };
+  | {
+      status: "executed";
+      flowStatus: string;
+      approvalRequestId: string | null;
     }
-
-    return {
-      status: "accepted",
-      workspaceId: event.workspaceId,
-      conversationId,
-      triggerType: AGENT_TRIGGER_TYPES.INBOUND_MESSAGE,
-      sourceEventId: event.eventId,
-      sourceEventType: event.eventType,
-      sourceEventSource: event.source,
-      trigger: {
-        triggerType: AGENT_TRIGGER_TYPES.INBOUND_MESSAGE,
-        triggerReason:
-          "Automatic run after canonical inbound message ingestion.",
-        sourceMessageId: messageId,
-        metadata: {
-          automatic: true,
-          sourceEventId: event.eventId,
-          sourceEventType: event.eventType,
-          sourceEventSource: event.source,
-        },
-      },
+  | {
+      status: "failed";
+      error: unknown;
     };
-  }
-
-  if (event.eventType === ENVOY_EVENT_TYPES.APPROVAL_REJECTED) {
-    const payload = event.payload;
-    const conversationId = payload.conversationId?.trim();
-    const approvalRequestId = payload.approvalRequestId?.trim();
-
-    if (!conversationId || !approvalRequestId) {
-      return {
-        status: "ignored",
-        reason: "approval_rejected event is missing canonical ids.",
-      };
-    }
-
-    return {
-      status: "accepted",
-      workspaceId: event.workspaceId,
-      conversationId,
-      triggerType: AGENT_TRIGGER_TYPES.APPROVAL_REJECTED,
-      sourceEventId: event.eventId,
-      sourceEventType: event.eventType,
-      sourceEventSource: event.source,
-      trigger: {
-        triggerType: AGENT_TRIGGER_TYPES.APPROVAL_REJECTED,
-        triggerReason:
-          "Automatic run after approval rejection for draft revision.",
-        sourceApprovalRequestId: approvalRequestId,
-        metadata: {
-          automatic: true,
-          rejectionReason: payload.rejectionReason ?? null,
-          reviewedByUserId: payload.reviewedByUserId ?? null,
-          sourceEventId: event.eventId,
-          sourceEventType: event.eventType,
-          sourceEventSource: event.source,
-        },
-      },
-    };
-  }
-
-  return {
-    status: "ignored",
-    reason: `Unsupported event type ${event.eventType}.`,
-  };
-}
 
 async function createAutomaticTriggerAuditLog(input: {
   workspaceId: string;
@@ -281,32 +175,126 @@ async function hasExistingDraftFromTriggerSource(input: {
   return false;
 }
 
+async function completeAutomaticTriggerIdempotency(input: {
+  context: AutomaticAgentTriggerEventContext;
+  resultSummaryJson: Record<string, unknown>;
+}) {
+  await agentTriggerIdempotencyService.complete({
+    key: buildAutomaticTriggerIdempotencyKey(input.context),
+    resultSummaryJson: {
+      workspaceId: input.context.workspaceId,
+      conversationId: input.context.conversationId,
+      triggerType: input.context.triggerType,
+      sourceEventId: input.context.sourceEventId,
+      ...input.resultSummaryJson,
+    },
+  });
+}
+
+function toEnvoyEventFromJournalRecord(record: {
+  eventId: string;
+  workspaceId: string;
+  eventType: string;
+  entityType: string;
+  entityId: string;
+  source: string;
+  version: number;
+  occurredAt: Date;
+  payloadJson: unknown;
+}): EnvoyEvent {
+  return {
+    eventId: record.eventId,
+    workspaceId: record.workspaceId,
+    eventType: record.eventType,
+    entityType: record.entityType,
+    entityId: record.entityId,
+    source: record.source,
+    version: record.version,
+    occurredAt: record.occurredAt.toISOString(),
+    payload: record.payloadJson,
+  } as EnvoyEvent;
+}
+
+export async function executeAutomaticAgentTriggerFromJob(
+  payload: AgentRunFromTriggerJobPayload,
+): Promise<AutomaticAgentTriggerExecutionResult> {
+  const prisma = getPrisma();
+  const eventJournal = await prisma.eventJournal.findUnique({
+    where: {
+      eventId: payload.sourceEventId,
+    },
+    select: {
+      eventId: true,
+      workspaceId: true,
+      eventType: true,
+      entityType: true,
+      entityId: true,
+      source: true,
+      version: true,
+      occurredAt: true,
+      payloadJson: true,
+    },
+  });
+
+  if (!eventJournal) {
+    throw new Error("Source event journal record could not be loaded.");
+  }
+
+  if (eventJournal.workspaceId !== payload.workspaceId) {
+    throw new Error("Source event workspace does not match agent job payload.");
+  }
+
+  const parsed = parseAutomaticAgentTriggerFromEvent(
+    toEnvoyEventFromJournalRecord(eventJournal),
+  );
+
+  if (parsed.status === "ignored") {
+    return parsed;
+  }
+
+  if (
+    parsed.workspaceId !== payload.workspaceId ||
+    parsed.conversationId !== payload.conversationId ||
+    parsed.triggerType !== payload.triggerType ||
+    (parsed.trigger.sourceMessageId ?? null) !== payload.sourceMessageId ||
+    (parsed.trigger.sourceApprovalRequestId ?? null) !==
+      payload.sourceApprovalRequestId
+  ) {
+    throw new Error("Source event does not match agent trigger job payload.");
+  }
+
+  return executeAutomaticAgentTriggerForContext(parsed);
+}
+
 export async function executeAutomaticAgentTriggerForEvent(
   event: EnvoyEvent,
-) {
+): Promise<AutomaticAgentTriggerExecutionResult> {
   const parsed = parseAutomaticAgentTriggerFromEvent(event);
 
   if (parsed.status === "ignored") {
     return parsed;
   }
 
-  const lockKey = buildAutomaticTriggerLockKey(parsed);
-  const runtimeLocks = getAutomaticAgentRuntimeLocks();
+  return executeAutomaticAgentTriggerForContext(parsed);
+}
 
-  if (runtimeLocks.has(lockKey)) {
-    await logSuppressedAutomaticTrigger({
-      context: parsed,
-      reason: AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.DUPLICATE_IN_PROGRESS,
-      summary:
-        "Automatic trigger suppressed because an equivalent run is already in progress.",
-    });
+async function executeAutomaticAgentTriggerForContext(
+  parsed: AutomaticAgentTriggerEventContext,
+): Promise<AutomaticAgentTriggerExecutionResult> {
+  const idempotencyKey = buildAutomaticTriggerIdempotencyKey(parsed);
+  const beginRecord = await agentTriggerIdempotencyService.begin({
+    key: idempotencyKey,
+  });
+
+  if (beginRecord.status !== "in_progress") {
     return {
       status: "suppressed" as const,
-      reason: AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.DUPLICATE_IN_PROGRESS,
+      reason:
+        beginRecord.status === "duplicate"
+          ? AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.DUPLICATE_IN_PROGRESS
+          : AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.DUPLICATE_SOURCE_ALREADY_PROCESSED,
     };
   }
-
-  runtimeLocks.add(lockKey);
 
   try {
     const prisma = getPrisma();
@@ -342,6 +330,14 @@ export async function executeAutomaticAgentTriggerForEvent(
     });
 
     if (!conversation) {
+      await completeAutomaticTriggerIdempotency({
+        context: parsed,
+        resultSummaryJson: {
+          status: "suppressed",
+          reason:
+            AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.CONVERSATION_NOT_FOUND,
+        },
+      });
       return {
         status: "suppressed" as const,
         reason: AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.CONVERSATION_NOT_FOUND,
@@ -355,6 +351,15 @@ export async function executeAutomaticAgentTriggerForEvent(
         summary:
           "Automatic trigger suppressed because no active assignment exists.",
         actorAgentAssignmentId: conversation.assignedAgentId ?? null,
+      });
+      await completeAutomaticTriggerIdempotency({
+        context: parsed,
+        resultSummaryJson: {
+          status: "suppressed",
+          reason:
+            AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.NO_ACTIVE_ASSIGNMENT,
+          actorAgentAssignmentId: conversation.assignedAgentId ?? null,
+        },
       });
       return {
         status: "suppressed" as const,
@@ -376,6 +381,14 @@ export async function executeAutomaticAgentTriggerForEvent(
           "Automatic trigger suppressed because assignment trigger rules disable this trigger type.",
         actorAgentAssignmentId: conversation.assignedAgent.id,
       });
+      await completeAutomaticTriggerIdempotency({
+        context: parsed,
+        resultSummaryJson: {
+          status: "suppressed",
+          reason: AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.TRIGGER_DISABLED,
+          actorAgentAssignmentId: conversation.assignedAgent.id,
+        },
+      });
       return {
         status: "suppressed" as const,
         reason: AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.TRIGGER_DISABLED,
@@ -390,6 +403,15 @@ export async function executeAutomaticAgentTriggerForEvent(
           "Automatic trigger suppressed because the conversation is in a terminal state.",
         actorAgentAssignmentId: conversation.assignedAgent.id,
         metadata: {
+          conversationState: conversation.state,
+        },
+      });
+      await completeAutomaticTriggerIdempotency({
+        context: parsed,
+        resultSummaryJson: {
+          status: "suppressed",
+          reason: AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.TERMINAL_STATE,
+          actorAgentAssignmentId: conversation.assignedAgent.id,
           conversationState: conversation.state,
         },
       });
@@ -410,6 +432,15 @@ export async function executeAutomaticAgentTriggerForEvent(
         summary:
           "Automatic trigger suppressed because this conversation already has an unresolved approval path.",
         actorAgentAssignmentId: conversation.assignedAgent.id,
+      });
+      await completeAutomaticTriggerIdempotency({
+        context: parsed,
+        resultSummaryJson: {
+          status: "suppressed",
+          reason:
+            AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.UNRESOLVED_APPROVAL_PATH,
+          actorAgentAssignmentId: conversation.assignedAgent.id,
+        },
       });
       return {
         status: "suppressed" as const,
@@ -432,6 +463,15 @@ export async function executeAutomaticAgentTriggerForEvent(
         summary:
           "Automatic trigger suppressed because this source trigger already produced a draft path.",
         actorAgentAssignmentId: conversation.assignedAgent.id,
+      });
+      await completeAutomaticTriggerIdempotency({
+        context: parsed,
+        resultSummaryJson: {
+          status: "suppressed",
+          reason:
+            AUTOMATIC_AGENT_TRIGGER_SUPPRESSION_REASONS.DUPLICATE_SOURCE_ALREADY_PROCESSED,
+          actorAgentAssignmentId: conversation.assignedAgent.id,
+        },
       });
       return {
         status: "suppressed" as const,
@@ -480,6 +520,17 @@ export async function executeAutomaticAgentTriggerForEvent(
       },
     });
 
+    await completeAutomaticTriggerIdempotency({
+      context: parsed,
+      resultSummaryJson: {
+        status: "executed",
+        flowStatus: flowResult.status,
+        approvalRequestId: flowResult.approval?.approvalRequestId ?? null,
+        draftMessageId: flowResult.approval?.draftMessageId ?? null,
+        actorAgentAssignmentId: conversation.assignedAgent.id,
+      },
+    });
+
     return {
       status: "executed" as const,
       flowStatus: flowResult.status,
@@ -500,11 +551,20 @@ export async function executeAutomaticAgentTriggerForEvent(
       },
     });
 
+    await agentTriggerIdempotencyService.fail({
+      key: idempotencyKey,
+      resultSummaryJson: {
+        workspaceId: parsed.workspaceId,
+        conversationId: parsed.conversationId,
+        triggerType: parsed.triggerType,
+        sourceEventId: parsed.sourceEventId,
+        error: safeError,
+      },
+    });
+
     return {
       status: "failed" as const,
       error: safeError,
     };
-  } finally {
-    runtimeLocks.delete(lockKey);
   }
 }

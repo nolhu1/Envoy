@@ -29,6 +29,13 @@ import { getCurrentWorkspaceMembers } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
+type WorkspaceMemberRow = Awaited<
+  ReturnType<typeof getCurrentWorkspaceMembers>
+>[number];
+type WorkspaceInviteRow = Awaited<
+  ReturnType<typeof listInvitesForCurrentWorkspace>
+>[number];
+
 type MembersPageProps = {
   searchParams?: Promise<{
     error?: string;
@@ -87,9 +94,9 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
                 : `${members.length} workspace members`
             }
           >
-            <QueueTable
+            <QueueTable<WorkspaceMemberRow>
               rows={members}
-              getRowId={(member) => member.id}
+              getRowId={(member: WorkspaceMemberRow) => member.id}
               gridTemplateColumns="minmax(16rem,1.7fr) minmax(7rem,0.7fr) minmax(7rem,0.7fr) minmax(9rem,0.8fr)"
               emptyState={
                 <EmptyState
@@ -103,7 +110,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
                   id: "identity",
                   header: "Member",
                   mobileLabel: "Member",
-                  cell: (member) => (
+                  cell: (member: WorkspaceMemberRow) => (
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-slate-950">
                         {member.name || "Unnamed user"}
@@ -118,7 +125,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
                   id: "role",
                   header: "Role",
                   mobileLabel: "Role",
-                  cell: (member) => (
+                  cell: (member: WorkspaceMemberRow) => (
                     <Badge variant="neutral">{member.role}</Badge>
                   ),
                 },
@@ -138,7 +145,8 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
                   id: "created",
                   header: "Created",
                   mobileLabel: "Created",
-                  cell: (member) => formatDate(member.createdAt),
+                  cell: (member: WorkspaceMemberRow) =>
+                    formatDate(member.createdAt),
                 },
               ]}
             />
@@ -198,9 +206,9 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
                   : `${invites.length} pending invitations`
               }
             >
-              <QueueTable
+              <QueueTable<WorkspaceInviteRow>
                 rows={invites}
-                getRowId={(invite) => invite.id}
+                getRowId={(invite: WorkspaceInviteRow) => invite.id}
                 gridTemplateColumns="minmax(18rem,1.8fr) minmax(7rem,0.7fr) minmax(9rem,0.8fr) minmax(8rem,0.7fr)"
                 emptyState={
                   <EmptyState
@@ -214,7 +222,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
                     id: "invitee",
                     header: "Invitee",
                     mobileLabel: "Invitee",
-                    cell: (invite) => (
+                    cell: (invite: WorkspaceInviteRow) => (
                       <div className="min-w-0">
                         <p className="break-all font-semibold text-slate-950">
                           {invite.email}
@@ -231,7 +239,7 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
                     id: "role",
                     header: "Role",
                     mobileLabel: "Role",
-                    cell: (invite) => (
+                    cell: (invite: WorkspaceInviteRow) => (
                       <Badge variant="neutral">{invite.role}</Badge>
                     ),
                   },
@@ -239,10 +247,11 @@ export default async function MembersPage({ searchParams }: MembersPageProps) {
                     id: "expires",
                     header: "Expires",
                     mobileLabel: "Expires",
-                    cell: (invite) => formatDate(invite.expiresAt),
+                    cell: (invite: WorkspaceInviteRow) =>
+                      formatDate(invite.expiresAt),
                   },
                 ]}
-                renderRowActions={(invite) => (
+                renderRowActions={(invite: WorkspaceInviteRow) => (
                   <Link
                     href={`/invite/${invite.token}`}
                     className="text-sm font-medium text-slate-950 underline decoration-slate-300 underline-offset-4"

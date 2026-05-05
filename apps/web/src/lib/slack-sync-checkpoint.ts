@@ -1,6 +1,4 @@
-import "server-only";
-
-import { sanitizeErrorMessage } from "@/lib/security";
+import { sanitizeErrorMessage } from "./security";
 
 type SlackSyncCheckpointStatus = "IDLE" | "SYNC_IN_PROGRESS" | "SUCCEEDED" | "FAILED";
 type SlackSyncFailureCategory =

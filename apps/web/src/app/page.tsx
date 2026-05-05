@@ -205,10 +205,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           }
           activeFilters={<ActiveFilters filters={activeFilters} clearHref="/" />}
         >
-          <QueueTable
+          <QueueTable<InboxRow>
             rows={inboxRows}
-            getRowId={(row) => row.conversationId}
-            getRowHref={(row) => `/conversations/${row.conversationId}`}
+            getRowId={(row: InboxRow) => row.conversationId}
+            getRowHref={(row: InboxRow) =>
+              `/conversations/${row.conversationId}`
+            }
             gridTemplateColumns="minmax(18rem,2fr) minmax(11rem,1fr) minmax(12rem,1fr) minmax(10rem,0.9fr)"
             emptyState={
               <QueueEmpty
@@ -229,7 +231,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 id: "conversation",
                 header: "Conversation",
                 mobileLabel: "Conversation",
-                cell: (row) => (
+                cell: (row: InboxRow) => (
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="platform">
@@ -256,13 +258,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 id: "participants",
                 header: "Participants",
                 mobileLabel: "Participants",
-                cell: (row) => row.participantSummary,
+                cell: (row: InboxRow) => row.participantSummary,
               },
               {
                 id: "assignment",
                 header: "Assignment",
                 mobileLabel: "Assignment",
-                cell: (row) =>
+                cell: (row: InboxRow) =>
                   row.assignedAgentLabel ? (
                     <span className="line-clamp-2">{row.assignedAgentLabel}</span>
                   ) : (
@@ -273,7 +275,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 id: "activity",
                 header: "Last activity",
                 mobileLabel: "Last activity",
-                cell: (row) => formatTimestamp(row.lastActivityAt),
+                cell: (row: InboxRow) => formatTimestamp(row.lastActivityAt),
               },
             ]}
           />
