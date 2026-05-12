@@ -250,7 +250,10 @@ export function normalizeGmailAttachmentCandidates(
     platformMetadataJson: {
       provider: GMAIL_PROVIDER,
       attachmentId: part.body?.attachmentId ?? null,
+      messageId: message.id,
       threadId: message.threadId,
+      sizeBytes: part.body?.size ?? null,
+      downloadSupported: Boolean(part.body?.attachmentId),
     },
   }));
 }

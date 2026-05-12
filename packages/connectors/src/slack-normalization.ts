@@ -343,6 +343,9 @@ export function normalizeSlackAttachmentCandidates(
       externalConversationId: options?.externalConversationId ?? identity.externalConversationId,
       fileType: file.filetype ?? null,
       prettyType: file.pretty_type ?? null,
+      slackFileId: file.id ?? null,
+      hasPrivateDownloadUrl: Boolean(file.url_private),
+      downloadSupported: Boolean(file.url_private),
     },
   }));
 }

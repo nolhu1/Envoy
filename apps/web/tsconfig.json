@@ -19,6 +19,8 @@
       }
     ],
     "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/jsx-runtime": ["./node_modules/react/jsx-runtime"],
       "@/*": ["./src/*"],
       "@envoy/connectors": ["../../packages/connectors/src/index.ts"],
       "@envoy/db": ["../../packages/db/src/index.ts"],

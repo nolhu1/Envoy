@@ -4,6 +4,10 @@ import { readFile } from "node:fs/promises";
 
 import { getPrisma, getRuntimeJobHealthSummary } from "@envoy/db";
 
+import {
+  listWorkspaceConnectorHealth,
+  type ConnectorHealthSummary,
+} from "@/lib/connector-health";
 import { sanitizeDiagnostics } from "@/lib/security";
 
 const DEFAULT_METRIC_WINDOW_DAYS = 14;
@@ -67,6 +71,7 @@ export type WorkspaceOperationalSnapshot = {
     oldestQueuedJobAgeMs: number | null;
     recentFailureCount: number;
   };
+  connectorHealth: ConnectorHealthSummary[];
   averageAgentLatency: {
     sampleCount: number;
     averageLatencyMs: number | null;
@@ -217,6 +222,7 @@ export async function getWorkspaceOperationalSnapshot(input: {
     reviewedApprovals,
     workerMetrics,
     runtimeHealth,
+    connectorHealth,
   ] = await Promise.all([
     prisma.integration.findMany({
       where: {
@@ -302,6 +308,10 @@ export async function getWorkspaceOperationalSnapshot(input: {
     }),
     readWorkerMetricsSnapshot(),
     getRuntimeJobHealthSummary(),
+    listWorkspaceConnectorHealth({
+      workspaceId: input.workspaceId,
+      includeDisconnectedPlaceholders: true,
+    }),
   ]);
 
   const runStartedAtById = new Map<string, Date>();
@@ -395,6 +405,7 @@ export async function getWorkspaceOperationalSnapshot(input: {
       oldestQueuedJobAgeMs: runtimeHealth.oldestQueuedJobAgeMs,
       recentFailureCount: runtimeHealth.recentFailureCount,
     },
+    connectorHealth,
     averageAgentLatency: {
       sampleCount: agentLatencies.length,
       averageLatencyMs: agentLatencyAverage,

@@ -3,6 +3,7 @@ import type { WorkerRetryPolicy } from "./retry";
 export const WORKER_JOB_TYPES = {
   MAINTENANCE_HEALTH_CHECK: "maintenance.health_check",
   MAINTENANCE_RECOVER_STUCK_JOBS: "maintenance.recover_stuck_jobs",
+  MAINTENANCE_RENEW_GMAIL_WATCH: "maintenance.renew_gmail_watch",
   EVENTS_PROCESS_EVENT_PLACEHOLDER: "events.process_event_placeholder",
   SYNC_GMAIL_INTEGRATION: "sync.gmail_integration",
   SYNC_SLACK_INTEGRATION: "sync.slack_integration",
@@ -69,6 +70,15 @@ export type IntegrationSyncJobPayload = {
   requestedAt: string;
 };
 
+export type GmailWatchRenewalReason = "scheduled" | "manual" | "reconnect";
+
+export type GmailWatchRenewalJobPayload = {
+  workspaceId: string;
+  integrationId: string;
+  requestedAt: string;
+  reason: GmailWatchRenewalReason;
+};
+
 export type OutboundSendSource = "manual" | "approval";
 
 export type OutboundSendMessageJobPayload = {
@@ -115,6 +125,7 @@ export type WorkerJobPayloadByType = {
     staleAfterMs?: number | null;
     limit?: number | null;
   };
+  "maintenance.renew_gmail_watch": GmailWatchRenewalJobPayload;
   "events.process_event_placeholder": {
     workspaceId: string;
     eventId: string;

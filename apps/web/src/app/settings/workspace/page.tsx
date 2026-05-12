@@ -30,6 +30,7 @@ import {
   createTestApprovalRequestAction,
   disconnectIntegrationAction,
   previewDraftGeneratorAction,
+  renewGmailWatchAction,
   startGmailConnectAction,
   startSlackConnectAction,
   syncIntegrationAction,
@@ -72,6 +73,63 @@ function formatDurationMs(value: number | null) {
   }
 
   return `${(value / 60_000).toFixed(1)} min`;
+}
+
+function formatIsoDateTime(value: string | null) {
+  if (!value) {
+    return "Never";
+  }
+
+  const date = new Date(value);
+
+  return Number.isFinite(date.getTime()) ? formatDateTime(date) : value;
+}
+
+function formatSyncLag(minutes: number | null) {
+  if (minutes == null) {
+    return "Unknown";
+  }
+
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours < 48) {
+    return remainingMinutes > 0
+      ? `${hours}h ${remainingMinutes}m`
+      : `${hours}h`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+}
+
+function healthBadgeVariant(severity: string) {
+  if (severity === "success") {
+    return "success" as const;
+  }
+
+  if (severity === "warning") {
+    return "warning" as const;
+  }
+
+  if (severity === "critical") {
+    return "critical" as const;
+  }
+
+  return "neutral" as const;
+}
+
+function formatHealthStatus(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/(^|\s)\S/g, (match) => match.toUpperCase());
 }
 
 function formatElapsedSince(value: Date | null, now: Date) {
@@ -182,6 +240,7 @@ export default async function WorkspaceSettingsPage({
   const integrationAction = readSearchParam(resolvedSearchParams?.action);
   const integrationStatus = readSearchParam(resolvedSearchParams?.status);
   const integrationMessage = readSearchParam(resolvedSearchParams?.message);
+  const integrationRecovery = readSearchParam(resolvedSearchParams?.recovery);
   const syncJobId = readSearchParam(resolvedSearchParams?.jobId);
   const syncThreadCount = readSearchParam(resolvedSearchParams?.threadCount);
   const syncMessageCount = readSearchParam(resolvedSearchParams?.messageCount);
@@ -225,6 +284,12 @@ export default async function WorkspaceSettingsPage({
       syncRuntimeJob.jobType === "sync.slack_integration")
       ? syncRuntimeJob
       : null;
+  const visibleWatchRuntimeJob =
+    syncRuntimeJob?.workspaceId === authContext.workspaceId &&
+    syncRuntimeJob.queueName === "maintenance" &&
+    syncRuntimeJob.jobType === "maintenance.renew_gmail_watch"
+      ? syncRuntimeJob
+      : null;
   const snapshotNow = operationalSnapshot
     ? new Date(operationalSnapshot.observedAt)
     : new Date();
@@ -260,6 +325,53 @@ export default async function WorkspaceSettingsPage({
   function renderIntegrationBanner() {
     if (
       integrationStatus === "queued" &&
+      integrationAction === "watch" &&
+      integrationName === "gmail"
+    ) {
+      const runtimeJob = visibleWatchRuntimeJob;
+
+      if (runtimeJob?.status === "COMPLETED") {
+        return (
+          <Alert severity="success" title="Gmail watch renewed">
+            Gmail Pub/Sub watch is active. Polling remains available as a
+            fallback.
+          </Alert>
+        );
+      }
+
+      if (
+        runtimeJob?.status === "FAILED" ||
+        runtimeJob?.status === "DEAD_LETTERED"
+      ) {
+        return (
+          <Alert severity="warning" title="Gmail watch renewal failed">
+            {readRuntimeJobError(runtimeJob.lastErrorJson) ??
+              "Gmail watch could not be renewed. Bounded polling remains active."}
+          </Alert>
+        );
+      }
+
+      if (runtimeJob?.status === "RUNNING") {
+        return (
+          <Alert severity="info" title="Gmail watch renewal running">
+            <SyncJobRefresh />
+            The worker is renewing Gmail Pub/Sub watch now. Polling remains
+            active while this runs.
+          </Alert>
+        );
+      }
+
+      return (
+        <Alert severity="info" title="Gmail watch renewal queued">
+          <SyncJobRefresh />
+          The watch renewal job is queued. Polling remains active while the
+          worker handles the provider request.
+        </Alert>
+      );
+    }
+
+    if (
+      integrationStatus === "queued" &&
       integrationAction === "sync" &&
       (integrationName === "gmail" || integrationName === "slack")
     ) {
@@ -270,19 +382,29 @@ export default async function WorkspaceSettingsPage({
         const output = readRuntimeJobOutput(runtimeJob.resultJson);
         const messageCount = readNumber(output?.messageCount);
         const threadCount = readNumber(output?.threadCount);
+        const pagesProcessed = readNumber(output?.pagesProcessed);
         const dmConversationCount = readNumber(output?.dmConversationCount);
+        const hasMore = output?.hasMore === true;
 
         return (
           <Alert severity="success" title={`${providerLabel} sync completed`}>
             {integrationName === "gmail" ? (
               <>
-                Threads fetched: {threadCount ?? "n/a"}. Messages written:{" "}
-                {messageCount ?? "n/a"}.
+                Pages processed: {pagesProcessed ?? "n/a"}. Threads fetched:{" "}
+                {threadCount ?? "n/a"}. Messages written:{" "}
+                {messageCount ?? "n/a"}.{" "}
+                {hasMore
+                  ? "More pages remain for the next run."
+                  : "No more pages remain."}
               </>
             ) : (
               <>
-                DMs fetched: {dmConversationCount ?? "n/a"}. Messages written:{" "}
-                {messageCount ?? "n/a"}.
+                Pages processed: {pagesProcessed ?? "n/a"}. DMs fetched:{" "}
+                {dmConversationCount ?? "n/a"}. Messages written:{" "}
+                {messageCount ?? "n/a"}.{" "}
+                {hasMore
+                  ? "More pages remain for the next run."
+                  : "No more pages remain."}
               </>
             )}
           </Alert>
@@ -417,10 +539,25 @@ export default async function WorkspaceSettingsPage({
       integrationStatus === "connected" &&
       (integrationName === "gmail" || integrationName === "slack")
     ) {
+      const providerLabel = integrationName === "gmail" ? "Gmail" : "Slack";
+      const reconnected = integrationAction === "reconnect";
+      const recoveryCopy =
+        integrationRecovery === "queued"
+          ? integrationName === "gmail"
+            ? "Recovery sync and Gmail watch renewal were queued in the worker. Existing conversations and messages were preserved. Bounded polling remains active if watch renewal cannot run."
+            : "Recovery sync was queued in the worker. Existing conversations and messages were preserved."
+          : integrationRecovery === "partial"
+            ? "Credentials were updated and history was preserved, but one recovery job could not be queued. Use the recovery actions below if needed."
+            : integrationRecovery === "failed"
+              ? "Credentials were updated and history was preserved, but recovery work could not be queued. Use Resume sync below after the worker is available."
+              : "Credentials were updated and existing history was preserved.";
+
       return (
-        <Alert severity="success" title="Integration connected">
-          {integrationName === "gmail" ? "Gmail" : "Slack"} connected
-          successfully.
+        <Alert
+          severity={integrationRecovery === "failed" ? "warning" : "success"}
+          title={`${providerLabel} ${reconnected ? "reconnected" : "connected"}`}
+        >
+          {recoveryCopy}
         </Alert>
       );
     }
@@ -428,7 +565,7 @@ export default async function WorkspaceSettingsPage({
     if (
       integrationStatus === "error" &&
       integrationMessage &&
-      (integrationName === "gmail" ||
+        (integrationName === "gmail" ||
         integrationName === "slack" ||
         integrationName === "approval-test" ||
         integrationName === "draft-preview")
@@ -439,6 +576,8 @@ export default async function WorkspaceSettingsPage({
           title={
             integrationAction === "sync"
               ? `${integrationName === "gmail" ? "Gmail" : "Slack"} sync failed`
+              : integrationAction === "watch"
+                ? "Gmail watch renewal failed"
               : integrationName === "approval-test"
                 ? "Test approval request creation failed"
                 : integrationName === "draft-preview"
@@ -507,7 +646,57 @@ export default async function WorkspaceSettingsPage({
 
             {canManageIntegrations ? (
               <div className="grid gap-4 lg:grid-cols-2">
-                {managedIntegrations?.map((integration) => (
+                {managedIntegrations?.map((integration) => {
+                  const hasGmailWatchProblem =
+                    integration.provider === "gmail" &&
+                    (
+                      integration.health.watchStatus?.includes("ERROR") ||
+                      integration.health.watchStatus?.includes("expired") ||
+                      integration.health.reason
+                        .toLowerCase()
+                        .includes("gmail watch")
+                    );
+                  const needsReconnect =
+                    integration.health.authProblem ||
+                    (
+                      integration.health.status === "action_required" &&
+                      !hasGmailWatchProblem
+                    ) ||
+                    integration.health.status === "disconnected" ||
+                    integration.status === "ERROR" ||
+                    integration.status === "DISCONNECTED";
+                  const canRunSync =
+                    Boolean(integration.integrationId) &&
+                    !needsReconnect &&
+                    (
+                      integration.status === "CONNECTED" ||
+                      integration.status === "SYNC_IN_PROGRESS"
+                    );
+                  const showGmailWatchRecovery =
+                    integration.provider === "gmail" &&
+                    Boolean(integration.integrationId) &&
+                    !integration.health.authProblem &&
+                    integration.status !== "DISCONNECTED" &&
+                    (
+                      hasGmailWatchProblem
+                    );
+                  const connectLabel =
+                    integration.provider === "gmail"
+                      ? integration.integrationId
+                        ? "Reconnect Gmail"
+                        : "Connect Gmail"
+                      : integration.integrationId
+                        ? "Reconnect Slack"
+                        : "Connect Slack";
+                  const syncLabel = integration.health.hasMoreSyncPages
+                    ? integration.provider === "gmail"
+                      ? "Resume Gmail sync"
+                      : "Resume Slack sync"
+                    : integration.provider === "gmail"
+                      ? "Resync Gmail"
+                      : "Resync Slack";
+
+                  return (
                   <Panel key={integration.platform} className="space-y-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="min-w-0">
@@ -524,11 +713,73 @@ export default async function WorkspaceSettingsPage({
                         status={integration.status ?? "DISCONNECTED"}
                         labelOverride={integration.statusLabel}
                       />
+                      <Badge
+                        className="self-start"
+                        variant={healthBadgeVariant(integration.health.severity)}
+                      >
+                        {formatHealthStatus(integration.health.status)}
+                      </Badge>
                     </div>
 
                     <MetadataList
                       items={[
                         { label: "Platform", value: integration.platform },
+                        {
+                          label: "Health reason",
+                          value: integration.health.reason,
+                        },
+                        {
+                          label: "Recommended action",
+                          value: integration.health.recommendedAction,
+                        },
+                        {
+                          label: "Last successful sync",
+                          value: formatIsoDateTime(
+                            integration.health.lastSuccessfulSyncAt,
+                          ),
+                        },
+                        {
+                          label: "Last attempted sync",
+                          value: formatIsoDateTime(
+                            integration.health.lastAttemptedSyncAt,
+                          ),
+                        },
+                        {
+                          label: "Sync lag",
+                          value: formatSyncLag(
+                            integration.health.syncLagMinutes,
+                          ),
+                        },
+                        {
+                          label: "More pages",
+                          value: integration.health.hasMoreSyncPages
+                            ? "Yes"
+                            : "No",
+                        },
+                        {
+                          label: "Auth problem",
+                          value: integration.health.authProblem ? "Yes" : "No",
+                        },
+                        {
+                          label: "Rate limited",
+                          value: integration.health.rateLimited ? "Yes" : "No",
+                        },
+                        ...(integration.provider === "gmail"
+                          ? [
+                              {
+                                label: "Gmail watch",
+                                value:
+                                  integration.health.watchStatus ??
+                                  "Unavailable",
+                              },
+                            ]
+                          : []),
+                        {
+                          label: "Last connector error",
+                          value:
+                            integration.health.lastError ??
+                            "No connector error recorded.",
+                        },
                         {
                           label: "Last synced",
                           value: formatDateTime(integration.lastSyncedAt),
@@ -548,9 +799,9 @@ export default async function WorkspaceSettingsPage({
                       ]}
                     />
 
-                    {integration.requiresReconnect ? (
+                    {needsReconnect ? (
                       <ReconnectPrompt
-                        description="Reconnect this integration before reliable sync or send operations continue."
+                        description="Reconnect this integration before sync or send operations continue. Existing conversations and messages will be preserved."
                       />
                     ) : null}
 
@@ -561,12 +812,12 @@ export default async function WorkspaceSettingsPage({
                             <Button
                               type="submit"
                               variant={
-                                integration.isConnected ? "secondary" : "primary"
+                                needsReconnect || !integration.integrationId
+                                  ? "primary"
+                                  : "secondary"
                               }
                             >
-                              {integration.isConnected
-                                ? "Reconnect Gmail"
-                                : "Connect Gmail"}
+                              {connectLabel}
                             </Button>
                           </form>
                         ) : (
@@ -574,33 +825,51 @@ export default async function WorkspaceSettingsPage({
                             <Button
                               type="submit"
                               variant={
-                                integration.isConnected ? "secondary" : "primary"
+                                needsReconnect || !integration.integrationId
+                                  ? "primary"
+                                  : "secondary"
                               }
                             >
-                              {integration.isConnected
-                                ? "Reconnect Slack"
-                                : "Connect Slack"}
+                              {connectLabel}
                             </Button>
                           </form>
                         )}
 
-                        {integration.integrationId ? (
+                        {canRunSync ? (
                           <form action={syncIntegrationAction}>
                             <input
                               type="hidden"
                               name="integrationId"
-                              value={integration.integrationId}
+                              value={integration.integrationId ?? ""}
                             />
-                            <Button type="submit" variant="accent">
-                              {integration.provider === "gmail"
-                                ? "Resync Gmail"
-                              : "Resync Slack"}
+                            <Button
+                              type="submit"
+                              variant={
+                                integration.health.hasMoreSyncPages
+                                  ? "primary"
+                                  : "accent"
+                              }
+                            >
+                              {syncLabel}
+                            </Button>
+                          </form>
+                        ) : null}
+                        {showGmailWatchRecovery ? (
+                          <form action={renewGmailWatchAction}>
+                            <input
+                              type="hidden"
+                              name="integrationId"
+                              value={integration.integrationId ?? ""}
+                            />
+                            <Button type="submit" variant="secondary">
+                              Renew Gmail watch
                             </Button>
                           </form>
                         ) : null}
                       </div>
 
-                      {integration.integrationId ? (
+                      {integration.integrationId &&
+                      integration.status !== "DISCONNECTED" ? (
                         <div className="border-t border-slate-200 pt-3">
                           <form action={disconnectIntegrationAction}>
                             <input
@@ -616,7 +885,8 @@ export default async function WorkspaceSettingsPage({
                       ) : null}
                     </div>
                   </Panel>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <PermissionState

@@ -87,6 +87,15 @@ importers:
 
   apps/worker:
     dependencies:
+      '@envoy/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
+      '@envoy/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@envoy/events':
+        specifier: workspace:*
+        version: link:../../packages/events
       bullmq:
         specifier: ^5.71.0
         version: 5.71.0
@@ -100,6 +109,9 @@ importers:
       ts-node-dev:
         specifier: ^2.0.0
         version: 2.0.0(@types/node@25.5.0)(typescript@5.9.3)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

@@ -651,6 +651,60 @@ export function createWorkerJobRegistry() {
         await runtime.close();
       }
     })
+    .register(WORKER_JOB_TYPES.MAINTENANCE_RENEW_GMAIL_WATCH, async ({ job }) => {
+      if (job.payload.workspaceId !== job.workspaceId) {
+        throw new Error("Gmail watch renewal job workspace mismatch.");
+      }
+
+      const prisma = getPrisma();
+      const integration = await prisma.integration.findFirst({
+        where: {
+          id: job.payload.integrationId,
+          workspaceId: job.workspaceId,
+          platform: "EMAIL",
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!integration) {
+        throw new Error("Gmail integration could not be loaded for watch renewal.");
+      }
+
+      const { renewGmailWatchForIntegration } = await import(
+        "../../web/src/lib/gmail-ingestion"
+      );
+      const result = await renewGmailWatchForIntegration({
+        workspaceId: job.workspaceId,
+        integrationId: integration.id,
+      });
+
+      if (result.status === "error") {
+        return {
+          status: WORKER_JOB_STATUSES.FAILED,
+          handledAt: new Date().toISOString(),
+          output: {
+            ...result,
+            reason: job.payload.reason,
+          },
+          error: {
+            message: result.error ?? "Gmail watch renewal failed.",
+            retryable: true,
+          },
+        };
+      }
+
+      return {
+        status: WORKER_JOB_STATUSES.COMPLETED,
+        handledAt: new Date().toISOString(),
+        output: {
+          ...result,
+          reason: job.payload.reason,
+        },
+      };
+    })
     .register(WORKER_JOB_TYPES.EVENTS_PROCESS_EVENT_PLACEHOLDER, async ({ job }) => {
       console.log(
         "[worker] events.process_event_placeholder",

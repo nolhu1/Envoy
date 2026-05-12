@@ -7,6 +7,8 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
+      "react": ["apps/web/node_modules/@types/react"],
+      "react/jsx-runtime": ["apps/web/node_modules/react/jsx-runtime"],
       "@envoy/connectors": ["packages/connectors/src"],
       "@envoy/db": ["packages/db/src"],
       "@envoy/types": ["packages/types/src"],

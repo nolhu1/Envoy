@@ -131,6 +131,17 @@ export type SlackRecentDmSyncResult = {
   rawPayloadJson: JsonValue;
 };
 
+export type SlackPrivateFileDownloadInput = {
+  context: ConnectorContext;
+  url: string;
+};
+
+export type SlackPrivateFileDownloadResult = {
+  data: Uint8Array;
+  contentType: string | null;
+  contentLength: number | null;
+};
+
 function isJsonObject(value: JsonValue): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -233,6 +244,40 @@ async function fetchSlackJson<TResponse extends SlackApiResponse>(
   }
 
   return json;
+}
+
+export async function fetchSlackPrivateFile(
+  input: SlackPrivateFileDownloadInput,
+): Promise<SlackPrivateFileDownloadResult> {
+  const accessToken = getRequiredAccessToken(input.context);
+  const response = await fetch(input.url, {
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+    },
+    cache: "no-store",
+    redirect: "follow",
+  });
+
+  if (!response.ok) {
+    const error = new Error(
+      `Slack file download failed with status ${response.status}.`,
+    ) as SlackApiError;
+    error.statusCode = response.status;
+    error.code = response.status === 429 ? "rate_limited" : "provider_http_error";
+    error.retryable = response.status === 429 || response.status >= 500;
+    throw error;
+  }
+
+  const contentLengthHeader = response.headers.get("content-length");
+  const contentLength = contentLengthHeader
+    ? Number.parseInt(contentLengthHeader, 10)
+    : null;
+
+  return {
+    data: new Uint8Array(await response.arrayBuffer()),
+    contentType: response.headers.get("content-type"),
+    contentLength: Number.isFinite(contentLength) ? contentLength : null,
+  };
 }
 
 function collectParticipantUserIds(
@@ -436,7 +481,11 @@ export async function fetchSlackRecentDms(
       ),
     0,
   );
-  const nextCursor = listResponse.response_metadata?.next_cursor ?? null;
+  const rawNextCursor = listResponse.response_metadata?.next_cursor ?? null;
+  const nextCursor =
+    typeof rawNextCursor === "string" && rawNextCursor.trim()
+      ? rawNextCursor.trim()
+      : null;
 
   return {
     conversations: conversationItems,

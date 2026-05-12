@@ -5,6 +5,13 @@ import {
 } from "@envoy/connectors";
 import { createSecret, getPrisma, rotateSecret } from "@envoy/db";
 import { NextResponse } from "next/server";
+import {
+  WORKER_JOB_TYPES,
+} from "../../../../../../../worker/src/jobs";
+import {
+  WORKER_QUEUE_NAMES,
+  enqueueRuntimeJob,
+} from "../../../../../../../worker/src/queues";
 
 import { getCurrentAppAuthContext } from "@/lib/app-auth";
 import {
@@ -59,13 +66,159 @@ function buildErrorRedirect(request: Request, message: string) {
   return buildSettingsRedirect(request, params);
 }
 
-function buildSuccessRedirect(request: Request) {
+function buildSuccessRedirect(input: {
+  request: Request;
+  reconnect: boolean;
+  recoveryStatus: "queued" | "partial" | "failed";
+}) {
   const params = new URLSearchParams({
     integration: "gmail",
+    action: input.reconnect ? "reconnect" : "connect",
     status: "connected",
+    recovery: input.recoveryStatus,
   });
 
-  return buildSettingsRedirect(request, params);
+  return buildSettingsRedirect(input.request, params);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function clearRecoverableGmailMetadata(input: {
+  previousMetadata: unknown;
+  nextMetadata: Record<string, unknown>;
+  reconnect: boolean;
+}) {
+  const previous = isObject(input.previousMetadata) ? input.previousMetadata : {};
+  const previousWatch = isObject(previous.gmailWatch) ? previous.gmailWatch : null;
+  const now = new Date().toISOString();
+  const nextWatch = previousWatch
+    ? {
+        ...previousWatch,
+        status: "RENEWAL_QUEUED",
+        lastError: null,
+        lastRenewalQueuedAt: now,
+      }
+    : {
+        status: "RENEWAL_QUEUED",
+        lastError: null,
+        lastRenewalQueuedAt: now,
+      };
+
+  return {
+    ...previous,
+    ...input.nextMetadata,
+    connectError: null,
+    lastFailureCategory: null,
+    lastReconnectAt: input.reconnect ? now : null,
+    connectedAt: previous.connectedAt ?? now,
+    recovery: {
+      historyPreserved: input.reconnect,
+      pollingFallbackActive: true,
+      syncQueuedAt: now,
+      watchRenewalQueuedAt: now,
+    },
+    gmailWatch: nextWatch,
+  };
+}
+
+function buildFailedGmailConnectMetadata(input: {
+  previousMetadata: unknown;
+  error: unknown;
+}) {
+  const previous = isObject(input.previousMetadata) ? input.previousMetadata : {};
+
+  return {
+    ...previous,
+    provider: "gmail",
+    connectError: sanitizeErrorMessage(
+      input.error,
+      "Unknown Gmail connect error.",
+    ),
+    lastFailedReconnectAt: new Date().toISOString(),
+  };
+}
+
+function buildRecoverySyncDedupeKey(input: {
+  workspaceId: string;
+  integrationId: string;
+  requestedAt: Date;
+}) {
+  const bucket = Math.floor(input.requestedAt.getTime() / 10_000);
+
+  return `sync:${input.workspaceId}:${input.integrationId}:reconnect:${bucket}`;
+}
+
+function buildRecoveryWatchDedupeKey(input: {
+  workspaceId: string;
+  integrationId: string;
+  requestedAt: Date;
+}) {
+  const bucket = Math.floor(input.requestedAt.getTime() / 10_000);
+
+  return `gmail-watch:${input.workspaceId}:${input.integrationId}:reconnect:${bucket}`;
+}
+
+async function enqueueGmailRecoveryJobs(input: {
+  workspaceId: string;
+  integrationId: string;
+  userId: string;
+  reconnect: boolean;
+}) {
+  const requestedAtDate = new Date();
+  const requestedAt = requestedAtDate.toISOString();
+  const results = await Promise.allSettled([
+    enqueueRuntimeJob({
+      queueName: WORKER_QUEUE_NAMES.SYNC,
+      jobType: WORKER_JOB_TYPES.SYNC_GMAIL_INTEGRATION,
+      workspaceId: input.workspaceId,
+      payload: {
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+        requestedByUserId: input.userId,
+        reason: input.reconnect ? "retry" : "initial",
+        requestedAt,
+      },
+      dedupeKey: buildRecoverySyncDedupeKey({
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+        requestedAt: requestedAtDate,
+      }),
+      retryPolicy: {
+        maxAttempts: 3,
+      },
+    }),
+    enqueueRuntimeJob({
+      queueName: WORKER_QUEUE_NAMES.MAINTENANCE,
+      jobType: WORKER_JOB_TYPES.MAINTENANCE_RENEW_GMAIL_WATCH,
+      workspaceId: input.workspaceId,
+      payload: {
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+        requestedAt,
+        reason: "reconnect",
+      },
+      dedupeKey: buildRecoveryWatchDedupeKey({
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+        requestedAt: requestedAtDate,
+      }),
+      retryPolicy: {
+        maxAttempts: 2,
+      },
+    }),
+  ]);
+
+  if (results.every((result) => result.status === "fulfilled")) {
+    return "queued" as const;
+  }
+
+  if (results.some((result) => result.status === "fulfilled")) {
+    return "partial" as const;
+  }
+
+  return "failed" as const;
 }
 
 export async function GET(request: Request) {
@@ -118,7 +271,7 @@ export async function GET(request: Request) {
     const prisma = getPrisma();
     const externalAccountId = profile.emailAddress;
     const displayName = profile.emailAddress;
-    const platformMetadataJson = {
+    const nextProviderMetadata = {
       provider: "gmail",
       connectedEmail: profile.emailAddress,
       providerDisplayLabel: displayName,
@@ -135,22 +288,14 @@ export async function GET(request: Request) {
       select: {
         id: true,
         deletedAt: true,
+        platformMetadataJson: true,
+        status: true,
       },
     });
+    const reconnect = Boolean(existingIntegration);
 
     const integration = existingIntegration
-      ? await prisma.integration.update({
-          where: {
-            id: existingIntegration.id,
-          },
-          data: {
-            authType: "oauth",
-            displayName,
-            status: "PENDING",
-            platformMetadataJson,
-            deletedAt: null,
-          },
-        })
+      ? existingIntegration
       : await prisma.integration.create({
           data: {
             workspaceId: workspace.id,
@@ -159,7 +304,7 @@ export async function GET(request: Request) {
             displayName,
             authType: "oauth",
             status: "PENDING",
-            platformMetadataJson,
+            platformMetadataJson: nextProviderMetadata,
           },
         });
 
@@ -204,12 +349,48 @@ export async function GET(request: Request) {
         status: "CONNECTED",
         displayName,
         authType: "oauth",
-        platformMetadataJson: {
-          ...platformMetadataJson,
-          connectedAt: new Date().toISOString(),
-        },
+        externalAccountId,
+        deletedAt: null,
+        platformMetadataJson: clearRecoverableGmailMetadata({
+          previousMetadata: existingIntegration?.platformMetadataJson,
+          nextMetadata: nextProviderMetadata,
+          reconnect,
+        }),
       },
     });
+
+    const recoveryStatus = await enqueueGmailRecoveryJobs({
+      workspaceId: workspace.id,
+      integrationId: integration.id,
+      userId: authContext.userId,
+      reconnect,
+    });
+
+    if (recoveryStatus !== "queued") {
+      await prisma.integration.update({
+        where: {
+          id: integration.id,
+        },
+        data: {
+          platformMetadataJson: {
+            ...clearRecoverableGmailMetadata({
+              previousMetadata: existingIntegration?.platformMetadataJson,
+              nextMetadata: nextProviderMetadata,
+              reconnect,
+            }),
+            recovery: {
+              historyPreserved: reconnect,
+              pollingFallbackActive: true,
+              status: recoveryStatus,
+              lastError:
+                "Gmail reconnected, but one or more recovery jobs could not be queued.",
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        },
+      });
+      console.warn("[gmail-connect] recovery job enqueue was not fully successful");
+    }
 
     await publishEnvoyEvent(
       buildEnvoyEvent({
@@ -231,19 +412,33 @@ export async function GET(request: Request) {
       }),
     );
 
-    return buildSuccessRedirect(request);
+    return buildSuccessRedirect({
+      request,
+      reconnect,
+      recoveryStatus,
+    });
   } catch (error) {
     if (integrationId) {
-      await getPrisma().integration.update({
+      const prisma = getPrisma();
+      const existing = await prisma.integration.findUnique({
+        where: {
+          id: integrationId,
+        },
+        select: {
+          platformMetadataJson: true,
+        },
+      });
+
+      await prisma.integration.update({
         where: {
           id: integrationId,
         },
         data: {
           status: "ERROR",
-          platformMetadataJson: {
-            provider: "gmail",
-            connectError: sanitizeErrorMessage(error, "Unknown Gmail connect error."),
-          },
+          platformMetadataJson: buildFailedGmailConnectMetadata({
+            previousMetadata: existing?.platformMetadataJson,
+            error,
+          }),
         },
       });
     }

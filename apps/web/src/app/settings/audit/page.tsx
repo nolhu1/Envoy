@@ -70,6 +70,53 @@ function formatDurationMs(value: number | null) {
   return `${hours}h ${remainingMinutes}m`;
 }
 
+function formatSyncLag(minutes: number | null) {
+  if (minutes == null) {
+    return "Unknown";
+  }
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours < 48) {
+    return remainingMinutes > 0
+      ? `${hours}h ${remainingMinutes}m`
+      : `${hours}h`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+}
+
+function formatHealthStatus(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/(^|\s)\S/g, (match) => match.toUpperCase());
+}
+
+function healthBadgeVariant(severity: string) {
+  if (severity === "success") {
+    return "success" as const;
+  }
+
+  if (severity === "warning") {
+    return "warning" as const;
+  }
+
+  if (severity === "critical") {
+    return "critical" as const;
+  }
+
+  return "neutral" as const;
+}
+
 export default async function WorkspaceAuditPage({
   searchParams,
 }: AuditPageProps) {
@@ -186,6 +233,82 @@ export default async function WorkspaceAuditPage({
               )}{" "}
               executions
             </div>
+          </div>
+        </QueueContainer>
+
+        <QueueContainer
+          title="Connector health"
+          description="Workspace connector status derived from lifecycle state, checkpoints, watch metadata, and recent runtime failures."
+        >
+          <div className="grid gap-3 lg:grid-cols-2">
+            {operationalSnapshot.connectorHealth.map((connector) => (
+              <div
+                key={connector.provider}
+                className="rounded-lg border border-slate-200 bg-white p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase text-slate-500">
+                      {connector.provider === "gmail" ? "Gmail" : "Slack"}
+                    </p>
+                    <p className="mt-1 break-all text-sm font-semibold text-slate-950">
+                      {connector.displayName}
+                    </p>
+                  </div>
+                  <Badge variant={healthBadgeVariant(connector.severity)}>
+                    {formatHealthStatus(connector.status)}
+                  </Badge>
+                </div>
+
+                <div className="mt-3 grid gap-2 text-xs leading-5 text-slate-600">
+                  <p>
+                    <span className="font-medium text-slate-700">Reason:</span>{" "}
+                    {connector.reason}
+                  </p>
+                  <p>
+                    <span className="font-medium text-slate-700">
+                      Recommended:
+                    </span>{" "}
+                    {connector.recommendedAction}
+                  </p>
+                  <p>
+                    <span className="font-medium text-slate-700">
+                      Sync lag:
+                    </span>{" "}
+                    {formatSyncLag(connector.syncLagMinutes)}
+                    {" - "}
+                    <span className="font-medium text-slate-700">
+                      More pages:
+                    </span>{" "}
+                    {connector.hasMoreSyncPages ? "yes" : "no"}
+                  </p>
+                  {connector.provider === "gmail" ? (
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Gmail watch:
+                      </span>{" "}
+                      {connector.watchStatus ?? "Unavailable"}
+                    </p>
+                  ) : null}
+                  {connector.lastError ? (
+                    <p className="line-clamp-2">
+                      <span className="font-medium text-slate-700">
+                        Last error:
+                      </span>{" "}
+                      {connector.lastError}
+                    </p>
+                  ) : null}
+                  {connector.recentRuntimeFailureCount > 0 ? (
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Recent runtime failures:
+                      </span>{" "}
+                      {connector.recentRuntimeFailureCount}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ))}
           </div>
         </QueueContainer>
 

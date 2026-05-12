@@ -83,10 +83,13 @@ type ThreadConversationRecord = {
     } | null;
     attachments: Array<{
       id: string;
+      platform: ThreadPlatform;
+      externalAttachmentId: string | null;
       fileName: string;
       mimeType: string | null;
       sizeBytes: number | null;
       externalUrl: string | null;
+      platformMetadataJson: unknown;
     }>;
   }>;
 };
@@ -96,7 +99,8 @@ export type ThreadAttachmentRow = {
   fileName: string;
   mimeType: string | null;
   sizeLabel: string | null;
-  externalUrl: string | null;
+  downloadUrl: string | null;
+  downloadUnavailableReason: string | null;
 };
 
 export type ThreadMessageRow = {
@@ -173,6 +177,76 @@ function formatAttachmentSize(sizeBytes: number | null) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function hasSlackPrivateDownloadUrl(attachment: {
+  externalUrl: string | null;
+  platformMetadataJson: unknown;
+}) {
+  const metadata = isJsonObject(attachment.platformMetadataJson)
+    ? attachment.platformMetadataJson
+    : {};
+  const rawPayload = isJsonObject(metadata.rawPayloadJson)
+    ? metadata.rawPayloadJson
+    : {};
+  const privateUrl =
+    readString(rawPayload.url_private_download) ??
+    readString(rawPayload.url_private) ??
+    readString(metadata.url_private_download) ??
+    readString(metadata.url_private) ??
+    (attachment.externalUrl?.includes("slack.com/files-pri/")
+      ? attachment.externalUrl
+      : null);
+
+  return Boolean(privateUrl);
+}
+
+function buildAttachmentDownloadState(
+  attachment: ThreadConversationRecord["messages"][number]["attachments"][number],
+) {
+  if (attachment.platform === "EMAIL") {
+    const metadata = isJsonObject(attachment.platformMetadataJson)
+      ? attachment.platformMetadataJson
+      : {};
+    const hasAttachmentReference = Boolean(
+      readString(metadata.attachmentId) ?? attachment.externalAttachmentId,
+    );
+
+    return hasAttachmentReference
+      ? {
+          downloadUrl: `/api/attachments/${attachment.id}/download`,
+          downloadUnavailableReason: null,
+        }
+      : {
+          downloadUrl: null,
+          downloadUnavailableReason: "Download unavailable",
+        };
+  }
+
+  if (attachment.platform === "SLACK") {
+    return hasSlackPrivateDownloadUrl(attachment)
+      ? {
+          downloadUrl: `/api/attachments/${attachment.id}/download`,
+          downloadUnavailableReason: null,
+        }
+      : {
+          downloadUrl: null,
+          downloadUnavailableReason: "Provider download unavailable",
+        };
+  }
+
+  return {
+    downloadUrl: null,
+    downloadUnavailableReason: "Unsupported attachment provider",
+  };
+}
+
 function buildMessageSenderLabel(
   message: ThreadConversationRecord["messages"][number],
 ) {
@@ -225,7 +299,7 @@ function toThreadMessageRow(
       fileName: attachment.fileName,
       mimeType: attachment.mimeType,
       sizeLabel: formatAttachmentSize(attachment.sizeBytes),
-      externalUrl: attachment.externalUrl,
+      ...buildAttachmentDownloadState(attachment),
     })),
   };
 }
@@ -384,10 +458,13 @@ export async function getCurrentWorkspaceConversationThread(
             },
             select: {
               id: true,
+              platform: true,
+              externalAttachmentId: true,
               fileName: true,
               mimeType: true,
               sizeBytes: true,
               externalUrl: true,
+              platformMetadataJson: true,
             },
             orderBy: [{ createdAt: "asc" }],
           },

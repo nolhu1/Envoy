@@ -75,6 +75,29 @@ function toSyncErrorMessage(error: unknown) {
   return sanitizeUiErrorMessage(error) || "Unable to sync integration.";
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function buildDisconnectedMetadata(input: {
+  previousMetadata: unknown;
+  provider: "gmail" | "slack";
+}) {
+  const previous = isJsonObject(input.previousMetadata)
+    ? input.previousMetadata
+    : {};
+
+  return {
+    ...previous,
+    provider: input.provider,
+    disconnectedAt: new Date().toISOString(),
+    recovery: {
+      historyPreserved: true,
+      reconnectRequired: true,
+    },
+  };
+}
+
 function buildManualSyncDedupeKey(input: {
   workspaceId: string;
   integrationId: string;
@@ -319,6 +342,19 @@ export async function syncIntegrationAction(formData: FormData) {
     throw new Error("No managed integration is connected for this workspace.");
   }
 
+  if (
+    integration.status !== "CONNECTED" &&
+    integration.status !== "SYNC_IN_PROGRESS"
+  ) {
+    redirect(
+      `/settings/workspace?integration=${
+        integration.platform === "EMAIL" ? "gmail" : "slack"
+      }&action=sync&status=error&message=${encodeURIComponent(
+        "Reconnect this integration before syncing.",
+      )}`,
+    );
+  }
+
   let queuedRedirectHref: string;
 
   try {
@@ -365,6 +401,73 @@ export async function syncIntegrationAction(formData: FormData) {
   redirect(queuedRedirectHref);
 }
 
+function buildManualWatchRenewalDedupeKey(input: {
+  workspaceId: string;
+  integrationId: string;
+  requestedAt: Date;
+}) {
+  const doubleSubmitBucketMs = 10_000;
+  const requestBucket = Math.floor(
+    input.requestedAt.getTime() / doubleSubmitBucketMs,
+  );
+
+  return `gmail-watch:${input.workspaceId}:${input.integrationId}:manual:${requestBucket}`;
+}
+
+export async function renewGmailWatchAction(formData: FormData) {
+  const { workspace } = await requireWorkspaceForIntegrationManagement();
+  const integrationId = String(formData.get("integrationId") ?? "").trim();
+
+  if (!integrationId) {
+    throw new Error("Integration id is required.");
+  }
+
+  const integration = await getManagedIntegration({
+    workspaceId: workspace.id,
+    integrationId,
+  });
+
+  if (!integration || integration.platform !== "EMAIL") {
+    throw new Error("No Gmail integration is connected for this workspace.");
+  }
+
+  let queuedRedirectHref: string;
+
+  try {
+    const requestedAtDate = new Date();
+    const requestedAt = requestedAtDate.toISOString();
+    const enqueueResult = await enqueueRuntimeJob({
+      queueName: WORKER_QUEUE_NAMES.MAINTENANCE,
+      jobType: WORKER_JOB_TYPES.MAINTENANCE_RENEW_GMAIL_WATCH,
+      workspaceId: workspace.id,
+      payload: {
+        workspaceId: workspace.id,
+        integrationId: integration.id,
+        requestedAt,
+        reason: "manual",
+      },
+      dedupeKey: buildManualWatchRenewalDedupeKey({
+        workspaceId: workspace.id,
+        integrationId: integration.id,
+        requestedAt: requestedAtDate,
+      }),
+      retryPolicy: {
+        maxAttempts: 2,
+      },
+    });
+
+    queuedRedirectHref =
+      `/settings/workspace?integration=gmail&action=watch&status=queued&jobId=${enqueueResult.runtimeJobId}`;
+  } catch (error) {
+    const message = sanitizeUiErrorMessage(error) || "Unable to renew Gmail watch.";
+    redirect(
+      `/settings/workspace?integration=gmail&action=watch&status=error&message=${encodeURIComponent(message)}`,
+    );
+  }
+
+  redirect(queuedRedirectHref);
+}
+
 export async function disconnectIntegrationAction(formData: FormData) {
   const { workspace } = await requireWorkspaceForIntegrationManagement();
   const integrationId = String(formData.get("integrationId") ?? "").trim();
@@ -399,11 +502,11 @@ export async function disconnectIntegrationAction(formData: FormData) {
     where: { id: integration.id },
     data: {
       status: "DISCONNECTED",
-      deletedAt: new Date(),
-      platformMetadataJson: {
+      deletedAt: null,
+      platformMetadataJson: buildDisconnectedMetadata({
+        previousMetadata: integration.platformMetadataJson,
         provider: integration.platform === "EMAIL" ? "gmail" : "slack",
-        disconnectedAt: new Date().toISOString(),
-      },
+      }),
     },
   });
 

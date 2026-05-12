@@ -251,7 +251,21 @@ export default async function ConversationThreadPage({
                     fileName={attachment.fileName}
                     mimeType={attachment.mimeType}
                     sizeLabel={attachment.sizeLabel}
-                    href={attachment.externalUrl ?? undefined}
+                    actions={
+                      attachment.downloadUrl ? (
+                        <a
+                          href={attachment.downloadUrl}
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 shadow-sm shadow-slate-950/5 hover:border-slate-400 hover:bg-slate-50"
+                        >
+                          Download
+                        </a>
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          {attachment.downloadUnavailableReason ??
+                            "Download unavailable"}
+                        </span>
+                      )
+                    }
                   />
                 ))}
               </div>

@@ -3,6 +3,10 @@ import "server-only";
 import { getPrisma } from "@envoy/db";
 
 import { getCurrentAppAuthContext } from "@/lib/app-auth";
+import {
+  listWorkspaceConnectorHealth,
+  type ConnectorHealthSummary,
+} from "@/lib/connector-health";
 import { sanitizeUiErrorMessage } from "@/lib/security";
 
 type IntegrationPlatform = "EMAIL" | "SLACK";
@@ -21,6 +25,7 @@ type IntegrationRecord = {
   status: IntegrationStatus;
   lastSyncedAt: Date | null;
   platformMetadataJson: unknown;
+  deletedAt: Date | null;
 };
 
 export type ManagedIntegration = {
@@ -35,6 +40,7 @@ export type ManagedIntegration = {
   statusSummary: string | null;
   isConnected: boolean;
   requiresReconnect: boolean;
+  health: ConnectorHealthSummary;
 };
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -49,6 +55,62 @@ function readProvider(value: unknown) {
   return value.provider === "gmail" || value.provider === "slack"
     ? value.provider
     : null;
+}
+
+function readCheckpointNumber(checkpoint: Record<string, unknown>, key: string) {
+  const value = checkpoint[key];
+
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : null;
+}
+
+function readCheckpointString(checkpoint: Record<string, unknown>, key: string) {
+  const value = checkpoint[key];
+
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readGmailWatchSummary(metadata: Record<string, unknown> | null) {
+  const gmailWatch = isJsonObject(metadata?.gmailWatch)
+    ? metadata.gmailWatch
+    : null;
+
+  if (!gmailWatch) {
+    return null;
+  }
+
+  const status =
+    typeof gmailWatch.status === "string" && gmailWatch.status.trim()
+      ? gmailWatch.status.trim()
+      : "UNKNOWN";
+  const expiration =
+    typeof gmailWatch.expiration === "string" && gmailWatch.expiration.trim()
+      ? gmailWatch.expiration.trim()
+      : null;
+  const lastRenewedAt =
+    typeof gmailWatch.lastRenewedAt === "string" &&
+    gmailWatch.lastRenewedAt.trim()
+      ? gmailWatch.lastRenewedAt.trim()
+      : null;
+  const lastError =
+    isJsonObject(gmailWatch.lastError) &&
+    typeof gmailWatch.lastError.message === "string"
+      ? sanitizeUiErrorMessage(gmailWatch.lastError.message)
+      : null;
+  const isExpired =
+    expiration &&
+    Number.isFinite(new Date(expiration).getTime()) &&
+    new Date(expiration).getTime() <= Date.now();
+  const parts = [
+    `Gmail watch ${status.toLowerCase()}`,
+    isExpired ? "expired" : null,
+    expiration ? `expires ${expiration}` : null,
+    lastRenewedAt ? `renewed ${lastRenewedAt}` : null,
+    lastError ? `watch issue: ${lastError}` : null,
+  ].filter(Boolean);
+
+  return parts.join(" - ");
 }
 
 function readDiagnosticsSummary(record: IntegrationRecord) {
@@ -73,6 +135,18 @@ function readDiagnosticsSummary(record: IntegrationRecord) {
 
   if (typeof metadata.connectedEmail === "string" && metadata.connectedEmail) {
     return sanitizeUiErrorMessage(metadata.connectedEmail);
+  }
+
+  const gmailWatch = isJsonObject(metadata.gmailWatch)
+    ? metadata.gmailWatch
+    : null;
+
+  if (
+    gmailWatch &&
+    isJsonObject(gmailWatch.lastError) &&
+    typeof gmailWatch.lastError.message === "string"
+  ) {
+    return sanitizeUiErrorMessage(gmailWatch.lastError.message);
   }
 
   if (typeof metadata.slackTeamName === "string" && metadata.slackTeamName) {
@@ -125,7 +199,53 @@ function readStatusSummary(record: IntegrationRecord) {
         : null;
 
   if (checkpoint && typeof checkpoint.status === "string") {
-    return `Last checkpoint: ${checkpoint.status}`;
+    const pagesProcessed = readCheckpointNumber(
+      checkpoint,
+      "totalPagesProcessed",
+    );
+    const threadsProcessed =
+      readCheckpointNumber(checkpoint, "totalThreadsProcessed") ??
+      readCheckpointNumber(checkpoint, "threadCount");
+    const dmConversationsProcessed = readCheckpointNumber(
+      checkpoint,
+      "totalDmConversationsProcessed",
+    );
+    const canonicalConversationsProcessed = readCheckpointNumber(
+      checkpoint,
+      "totalCanonicalConversationsProcessed",
+    );
+    const messagesInserted =
+      readCheckpointNumber(checkpoint, "totalMessagesInserted") ??
+      readCheckpointNumber(checkpoint, "messageCount");
+    const lastSuccessfulSyncAt = readCheckpointString(
+      checkpoint,
+      "lastSuccessfulSyncAt",
+    );
+    const hasMore = checkpoint.hasMore === true;
+    const parts = [
+      `Last checkpoint: ${checkpoint.status}`,
+      pagesProcessed == null ? null : `pages ${pagesProcessed}`,
+      dmConversationsProcessed == null
+        ? null
+        : `DMs ${dmConversationsProcessed}`,
+      canonicalConversationsProcessed == null
+        ? null
+        : `canonical conversations ${canonicalConversationsProcessed}`,
+      threadsProcessed == null ? null : `threads ${threadsProcessed}`,
+      messagesInserted == null ? null : `messages ${messagesInserted}`,
+      hasMore ? "more pages remain" : "no more pages",
+      lastSuccessfulSyncAt ? `last success ${lastSuccessfulSyncAt}` : null,
+    ].filter(Boolean);
+
+    const watchSummary = readGmailWatchSummary(metadata);
+
+    return [...parts, watchSummary].filter(Boolean).join(" - ");
+  }
+
+  const watchSummary = readGmailWatchSummary(metadata);
+
+  if (watchSummary) {
+    return watchSummary;
   }
 
   return null;
@@ -134,6 +254,7 @@ function readStatusSummary(record: IntegrationRecord) {
 function toManagedIntegration(
   platform: IntegrationPlatform,
   record: IntegrationRecord | null,
+  health: ConnectorHealthSummary,
 ): ManagedIntegration {
   const provider = platform === "EMAIL" ? "gmail" : "slack";
 
@@ -150,6 +271,7 @@ function toManagedIntegration(
       statusSummary: "Not connected.",
       isConnected: false,
       requiresReconnect: false,
+      health,
     };
   }
 
@@ -166,9 +288,10 @@ function toManagedIntegration(
     lastSyncedAt: record.lastSyncedAt,
     diagnosticsSummary: readDiagnosticsSummary(record),
     statusSummary: readStatusSummary(record),
-    isConnected: true,
+    isConnected: record.status !== "DISCONNECTED",
     requiresReconnect:
       record.status === "ERROR" || record.status === "DISCONNECTED",
+    health,
   };
 }
 
@@ -180,27 +303,49 @@ export async function getCurrentWorkspaceManagedIntegrations() {
   }
 
   const prisma = getPrisma();
-  const integrations = await prisma.integration.findMany({
-    where: {
-      workspaceId: authContext.workspaceId,
-      deletedAt: null,
-      platform: {
-        in: ["EMAIL", "SLACK"],
+  const [integrations, healthSummaries] = await Promise.all([
+    prisma.integration.findMany({
+      where: {
+        workspaceId: authContext.workspaceId,
+        OR: [
+          {
+            deletedAt: null,
+          },
+          {
+            status: "DISCONNECTED",
+          },
+        ],
+        platform: {
+          in: ["EMAIL", "SLACK"],
+        },
       },
-    },
-    select: {
-      id: true,
-      platform: true,
-      displayName: true,
-      externalAccountId: true,
-      status: true,
-      lastSyncedAt: true,
-      platformMetadataJson: true,
-    },
-    orderBy: [{ updatedAt: "desc" }],
-  });
+      select: {
+        id: true,
+        platform: true,
+        displayName: true,
+        externalAccountId: true,
+        status: true,
+        lastSyncedAt: true,
+        platformMetadataJson: true,
+        deletedAt: true,
+      },
+      orderBy: [{ updatedAt: "desc" }],
+    }),
+    listWorkspaceConnectorHealth({
+      workspaceId: authContext.workspaceId,
+      includeDisconnectedPlaceholders: true,
+    }),
+  ]);
 
   const byPlatform = new Map<IntegrationPlatform, IntegrationRecord>();
+  const healthByIntegrationId = new Map(
+    healthSummaries.flatMap((health) =>
+      health.integrationId ? [[health.integrationId, health] as const] : [],
+    ),
+  );
+  const healthByProvider = new Map(
+    healthSummaries.map((health) => [health.provider, health] as const),
+  );
 
   for (const integration of integrations) {
     const provider = readProvider(integration.platformMetadataJson);
@@ -218,7 +363,17 @@ export async function getCurrentWorkspaceManagedIntegrations() {
   }
 
   return [
-    toManagedIntegration("EMAIL", byPlatform.get("EMAIL") ?? null),
-    toManagedIntegration("SLACK", byPlatform.get("SLACK") ?? null),
+    toManagedIntegration(
+      "EMAIL",
+      byPlatform.get("EMAIL") ?? null,
+      healthByIntegrationId.get(byPlatform.get("EMAIL")?.id ?? "") ??
+        healthByProvider.get("gmail")!,
+    ),
+    toManagedIntegration(
+      "SLACK",
+      byPlatform.get("SLACK") ?? null,
+      healthByIntegrationId.get(byPlatform.get("SLACK")?.id ?? "") ??
+        healthByProvider.get("slack")!,
+    ),
   ];
 }

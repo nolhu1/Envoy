@@ -5,6 +5,13 @@ import {
 } from "@envoy/connectors";
 import { createSecret, getPrisma, rotateSecret } from "@envoy/db";
 import { NextResponse } from "next/server";
+import {
+  WORKER_JOB_TYPES,
+} from "../../../../../../../worker/src/jobs";
+import {
+  WORKER_QUEUE_NAMES,
+  enqueueRuntimeJob,
+} from "../../../../../../../worker/src/queues";
 
 import { getCurrentAppAuthContext } from "@/lib/app-auth";
 import {
@@ -59,13 +66,111 @@ function buildErrorRedirect(request: Request, message: string) {
   return buildSettingsRedirect(request, params);
 }
 
-function buildSuccessRedirect(request: Request) {
+function buildSuccessRedirect(input: {
+  request: Request;
+  reconnect: boolean;
+  recoveryStatus: "queued" | "failed";
+}) {
   const params = new URLSearchParams({
     integration: "slack",
+    action: input.reconnect ? "reconnect" : "connect",
     status: "connected",
+    recovery: input.recoveryStatus,
   });
 
-  return buildSettingsRedirect(request, params);
+  return buildSettingsRedirect(input.request, params);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function clearRecoverableSlackMetadata(input: {
+  previousMetadata: unknown;
+  nextMetadata: Record<string, unknown>;
+  reconnect: boolean;
+  recoveryStatus?: "queued" | "failed";
+}) {
+  const previous = isObject(input.previousMetadata) ? input.previousMetadata : {};
+  const now = new Date().toISOString();
+
+  return {
+    ...previous,
+    ...input.nextMetadata,
+    connectError: null,
+    lastFailureCategory: null,
+    lastReconnectAt: input.reconnect ? now : null,
+    connectedAt: previous.connectedAt ?? now,
+    recovery: {
+      historyPreserved: input.reconnect,
+      syncQueuedAt: input.recoveryStatus === "queued" ? now : null,
+      status: input.recoveryStatus ?? "queued",
+    },
+  };
+}
+
+function buildFailedSlackConnectMetadata(input: {
+  previousMetadata: unknown;
+  error: unknown;
+}) {
+  const previous = isObject(input.previousMetadata) ? input.previousMetadata : {};
+
+  return {
+    ...previous,
+    provider: "slack",
+    connectError: sanitizeErrorMessage(
+      input.error,
+      "Unknown Slack connect error.",
+    ),
+    lastFailedReconnectAt: new Date().toISOString(),
+  };
+}
+
+function buildRecoverySyncDedupeKey(input: {
+  workspaceId: string;
+  integrationId: string;
+  requestedAt: Date;
+}) {
+  const bucket = Math.floor(input.requestedAt.getTime() / 10_000);
+
+  return `sync:${input.workspaceId}:${input.integrationId}:reconnect:${bucket}`;
+}
+
+async function enqueueSlackRecoverySync(input: {
+  workspaceId: string;
+  integrationId: string;
+  userId: string;
+  reconnect: boolean;
+}) {
+  const requestedAtDate = new Date();
+  const requestedAt = requestedAtDate.toISOString();
+
+  try {
+    await enqueueRuntimeJob({
+      queueName: WORKER_QUEUE_NAMES.SYNC,
+      jobType: WORKER_JOB_TYPES.SYNC_SLACK_INTEGRATION,
+      workspaceId: input.workspaceId,
+      payload: {
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+        requestedByUserId: input.userId,
+        reason: input.reconnect ? "retry" : "initial",
+        requestedAt,
+      },
+      dedupeKey: buildRecoverySyncDedupeKey({
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+        requestedAt: requestedAtDate,
+      }),
+      retryPolicy: {
+        maxAttempts: 3,
+      },
+    });
+
+    return "queued" as const;
+  } catch {
+    return "failed" as const;
+  }
 }
 
 export async function GET(request: Request) {
@@ -120,7 +225,7 @@ export async function GET(request: Request) {
     const prisma = getPrisma();
     const externalAccountId = identity.teamId;
     const displayName = identity.teamName ?? identity.teamId;
-    const platformMetadataJson = {
+    const nextProviderMetadata = {
       provider: "slack",
       slackTeamId: identity.teamId,
       slackTeamName: identity.teamName ?? null,
@@ -142,22 +247,14 @@ export async function GET(request: Request) {
       select: {
         id: true,
         deletedAt: true,
+        platformMetadataJson: true,
+        status: true,
       },
     });
+    const reconnect = Boolean(existingIntegration);
 
     const integration = existingIntegration
-      ? await prisma.integration.update({
-          where: {
-            id: existingIntegration.id,
-          },
-          data: {
-            authType: "oauth",
-            displayName,
-            status: "PENDING",
-            platformMetadataJson,
-            deletedAt: null,
-          },
-        })
+      ? existingIntegration
       : await prisma.integration.create({
           data: {
             workspaceId: workspace.id,
@@ -166,7 +263,7 @@ export async function GET(request: Request) {
             displayName,
             authType: "oauth",
             status: "PENDING",
-            platformMetadataJson,
+            platformMetadataJson: nextProviderMetadata,
           },
         });
 
@@ -211,12 +308,39 @@ export async function GET(request: Request) {
         status: "CONNECTED",
         displayName,
         authType: "oauth",
-        platformMetadataJson: {
-          ...platformMetadataJson,
-          connectedAt: new Date().toISOString(),
-        },
+        externalAccountId,
+        deletedAt: null,
+        platformMetadataJson: clearRecoverableSlackMetadata({
+          previousMetadata: existingIntegration?.platformMetadataJson,
+          nextMetadata: nextProviderMetadata,
+          reconnect,
+        }),
       },
     });
+
+    const recoveryStatus = await enqueueSlackRecoverySync({
+      workspaceId: workspace.id,
+      integrationId: integration.id,
+      userId: authContext.userId,
+      reconnect,
+    });
+
+    if (recoveryStatus !== "queued") {
+      await prisma.integration.update({
+        where: {
+          id: integration.id,
+        },
+        data: {
+          platformMetadataJson: clearRecoverableSlackMetadata({
+            previousMetadata: existingIntegration?.platformMetadataJson,
+            nextMetadata: nextProviderMetadata,
+            reconnect,
+            recoveryStatus,
+          }),
+        },
+      });
+      console.warn("[slack-connect] recovery sync enqueue failed");
+    }
 
     await publishEnvoyEvent(
       buildEnvoyEvent({
@@ -239,19 +363,33 @@ export async function GET(request: Request) {
       }),
     );
 
-    return buildSuccessRedirect(request);
+    return buildSuccessRedirect({
+      request,
+      reconnect,
+      recoveryStatus,
+    });
   } catch (error) {
     if (integrationId) {
-      await getPrisma().integration.update({
+      const prisma = getPrisma();
+      const existing = await prisma.integration.findUnique({
+        where: {
+          id: integrationId,
+        },
+        select: {
+          platformMetadataJson: true,
+        },
+      });
+
+      await prisma.integration.update({
         where: {
           id: integrationId,
         },
         data: {
           status: "ERROR",
-          platformMetadataJson: {
-            provider: "slack",
-            connectError: sanitizeErrorMessage(error, "Unknown Slack connect error."),
-          },
+          platformMetadataJson: buildFailedSlackConnectMetadata({
+            previousMetadata: existing?.platformMetadataJson,
+            error,
+          }),
         },
       });
     }
