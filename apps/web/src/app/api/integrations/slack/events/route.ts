@@ -6,6 +6,11 @@ import {
   ingestSlackWebhookMessageEvent,
   type SlackWebhookMessageEventInput,
 } from "@/lib/slack-ingestion";
+import {
+  checkRateLimit,
+  createRateLimitResponse,
+  getClientIpFromHeaders,
+} from "@/lib/rate-limit";
 import { sanitizeDiagnostics, sanitizeErrorMessage } from "@/lib/security";
 
 export const dynamic = "force-dynamic";
@@ -272,6 +277,16 @@ function logIgnoredEvent(input: {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit({
+    key: `slack-events:${getClientIpFromHeaders(request.headers)}`,
+    limit: 120,
+    windowMs: 60_000,
+  });
+
+  if (!rateLimit.allowed) {
+    return createRateLimitResponse(rateLimit);
+  }
+
   const rawBody = await request.text();
   const verification = await verifyRequestSignature({
     rawBody,

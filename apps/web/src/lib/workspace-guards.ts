@@ -4,6 +4,13 @@ import { requireAppAuthContext } from "@/lib/app-auth";
 import { hasPermission } from "@/lib/permissions";
 import type { AppAuthContext } from "@/lib/auth-types";
 import type { AppPermission } from "@/lib/permissions";
+export {
+  TenantAccessError,
+  requireWorkspaceAccess,
+  requireOperatorAccess,
+  requireConversationWorkspace,
+  requireIntegrationWorkspace,
+} from "@/lib/tenancy";
 
 type GuardOptions = {
   permission?: AppPermission;

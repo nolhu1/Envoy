@@ -94,6 +94,7 @@ export {
   revokeSecret,
   rotateSecret,
   updateSecret,
+  validateSecretEncryptionConfig,
 } from "./connector-secret-store";
 export type {
   DraftGenerationConfig,

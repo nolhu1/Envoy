@@ -4,18 +4,20 @@ import {
   FilterBar,
   FilterField,
   Input,
+  MetadataList,
   PageContainer,
   PageHeader,
   QueueContainer,
   QueueTable,
+  Timeline,
 } from "@envoy/ui";
 
 import { ProductShell } from "@/components/product-shell";
 import {
-  listWorkspaceAuditLogs,
-  type WorkspaceAuditLogRow,
-} from "@/lib/audit-log-viewer";
-import { getWorkspaceOperationalSnapshot } from "@/lib/observability";
+  listOperatorAuditRows,
+  type OperatorAuditRow,
+} from "@/lib/audit-log-reader";
+import { formatOperatorType } from "@/lib/operator-utils";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -35,399 +37,201 @@ function formatTimestamp(value: Date) {
   }).format(value);
 }
 
-function formatMetadataSummary(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return "No metadata";
+function statusBadge(row: OperatorAuditRow) {
+  if (!row.status) {
+    return <Badge variant="neutral">{formatOperatorType(row.kind)}</Badge>;
   }
 
-  const keys = Object.keys(value);
-  return keys.length > 0 ? keys.slice(0, 5).join(", ") : "No metadata";
+  return <Badge variant={row.severity === "critical" ? "critical" : row.severity === "warning" ? "warning" : row.severity === "success" ? "success" : "neutral"}>{formatOperatorType(row.status)}</Badge>;
 }
 
-function formatAuditLabel(value: string) {
-  return value
-    .replaceAll("_", " ")
-    .toLowerCase()
-    .replace(/(^|\s)\S/g, (match) => match.toUpperCase());
-}
-
-function formatNullableCount(value: number | null | undefined) {
-  return typeof value === "number" ? value.toLocaleString("en-US") : "Unknown";
-}
-
-function formatDurationMs(value: number | null) {
-  if (value == null) {
-    return "None queued";
-  }
-
-  const minutes = Math.floor(value / 60_000);
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return `${hours}h ${remainingMinutes}m`;
-}
-
-function formatSyncLag(minutes: number | null) {
-  if (minutes == null) {
-    return "Unknown";
-  }
-
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  if (hours < 48) {
-    return remainingMinutes > 0
-      ? `${hours}h ${remainingMinutes}m`
-      : `${hours}h`;
-  }
-
-  const days = Math.floor(hours / 24);
-  const remainingHours = hours % 24;
-
-  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
-}
-
-function formatHealthStatus(value: string) {
-  return value
-    .replaceAll("_", " ")
-    .toLowerCase()
-    .replace(/(^|\s)\S/g, (match) => match.toUpperCase());
-}
-
-function healthBadgeVariant(severity: string) {
-  if (severity === "success") {
-    return "success" as const;
-  }
-
-  if (severity === "warning") {
-    return "warning" as const;
-  }
-
-  if (severity === "critical") {
-    return "critical" as const;
-  }
-
-  return "neutral" as const;
+function linkPill(href: string, label: string) {
+  return (
+    <a
+      href={href}
+      className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 underline"
+    >
+      {label}
+    </a>
+  );
 }
 
 export default async function WorkspaceAuditPage({
   searchParams,
 }: AuditPageProps) {
   const authContext = await requirePermission(PERMISSIONS.VIEW_AUDIT_LOGS);
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const actionTypeFilter = readSearchParam(resolvedSearchParams?.actionType);
-  const logs = await listWorkspaceAuditLogs({
+  const params = searchParams ? await searchParams : undefined;
+  const filters = {
+    actorType: readSearchParam(params?.actorType),
+    actionType: readSearchParam(params?.actionType),
+    resourceType: readSearchParam(params?.resourceType),
+    platform: readSearchParam(params?.platform),
+    conversationId: readSearchParam(params?.conversationId),
+    approvalRequestId: readSearchParam(params?.approvalRequestId),
+    status: readSearchParam(params?.status),
+    from: readSearchParam(params?.from),
+    to: readSearchParam(params?.to),
+  };
+  const rows = await listOperatorAuditRows({
     workspaceId: authContext.workspaceId,
-    actionType: actionTypeFilter ?? null,
-    limit: 250,
+    filters,
   });
-  const operationalSnapshot = await getWorkspaceOperationalSnapshot({
-    workspaceId: authContext.workspaceId,
-  });
-  const runtimeHealth = operationalSnapshot.runtimeHealth;
 
   return (
     <ProductShell activeSection="operator">
       <PageContainer width="wide">
         <PageHeader
-          title="Workspace audit trail"
-          description="Append-only operational actions for integrations, sends, approvals, and agent lifecycle events."
+          title="Audit"
+          description="Workspace-scoped action logs and durable event journal records for operator inspection."
         />
 
         <QueueContainer
-          title="Runtime health"
-          description="Durable worker queues, stuck jobs, dead letters, and recent runtime failures."
-        >
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Redis
-              </p>
-              <div className="mt-2">
-                <Badge
-                  variant={
-                    runtimeHealth.redisConnected === true
-                      ? "success"
-                      : runtimeHealth.redisConnected === false
-                        ? "critical"
-                        : "neutral"
-                  }
-                >
-                  {runtimeHealth.redisConnected === true
-                    ? "Connected"
-                    : runtimeHealth.redisConnected === false
-                      ? "Disconnected"
-                      : "Unknown"}
-                </Badge>
-              </div>
-              <p className="mt-2 text-xs text-slate-500">
-                {runtimeHealth.queuesRegistered.length > 0
-                  ? runtimeHealth.queuesRegistered.join(", ")
-                  : "Queue list unavailable"}
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Queue depth
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {runtimeHealth.queuedJobCount.toLocaleString("en-US")}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Running {runtimeHealth.runningJobCount.toLocaleString("en-US")}
-                {" - "}Oldest {formatDurationMs(runtimeHealth.oldestQueuedJobAgeMs)}
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Failures
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {runtimeHealth.recentFailureCount.toLocaleString("en-US")}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Failed {runtimeHealth.failedJobCount.toLocaleString("en-US")}
-                {" - "}Dead-lettered{" "}
-                {runtimeHealth.deadLetteredJobCount.toLocaleString("en-US")}
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium uppercase text-slate-500">
-                Recovery
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {runtimeHealth.stuckJobCount.toLocaleString("en-US")}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Stuck jobs - Dead letters{" "}
-                {runtimeHealth.deadLetterCount.toLocaleString("en-US")}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
-              <span className="font-medium text-slate-700">Completed:</span>{" "}
-              {runtimeHealth.completedJobCount.toLocaleString("en-US")}
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
-              <span className="font-medium text-slate-700">Cancelled:</span>{" "}
-              {runtimeHealth.cancelledJobCount.toLocaleString("en-US")}
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
-              <span className="font-medium text-slate-700">
-                Worker metrics:
-              </span>{" "}
-              {formatNullableCount(
-                operationalSnapshot.workerQueueDepth.executionCount,
-              )}{" "}
-              executions
-            </div>
-          </div>
-        </QueueContainer>
-
-        <QueueContainer
-          title="Connector health"
-          description="Workspace connector status derived from lifecycle state, checkpoints, watch metadata, and recent runtime failures."
-        >
-          <div className="grid gap-3 lg:grid-cols-2">
-            {operationalSnapshot.connectorHealth.map((connector) => (
-              <div
-                key={connector.provider}
-                className="rounded-lg border border-slate-200 bg-white p-4"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-medium uppercase text-slate-500">
-                      {connector.provider === "gmail" ? "Gmail" : "Slack"}
-                    </p>
-                    <p className="mt-1 break-all text-sm font-semibold text-slate-950">
-                      {connector.displayName}
-                    </p>
-                  </div>
-                  <Badge variant={healthBadgeVariant(connector.severity)}>
-                    {formatHealthStatus(connector.status)}
-                  </Badge>
-                </div>
-
-                <div className="mt-3 grid gap-2 text-xs leading-5 text-slate-600">
-                  <p>
-                    <span className="font-medium text-slate-700">Reason:</span>{" "}
-                    {connector.reason}
-                  </p>
-                  <p>
-                    <span className="font-medium text-slate-700">
-                      Recommended:
-                    </span>{" "}
-                    {connector.recommendedAction}
-                  </p>
-                  <p>
-                    <span className="font-medium text-slate-700">
-                      Sync lag:
-                    </span>{" "}
-                    {formatSyncLag(connector.syncLagMinutes)}
-                    {" - "}
-                    <span className="font-medium text-slate-700">
-                      More pages:
-                    </span>{" "}
-                    {connector.hasMoreSyncPages ? "yes" : "no"}
-                  </p>
-                  {connector.provider === "gmail" ? (
-                    <p>
-                      <span className="font-medium text-slate-700">
-                        Gmail watch:
-                      </span>{" "}
-                      {connector.watchStatus ?? "Unavailable"}
-                    </p>
-                  ) : null}
-                  {connector.lastError ? (
-                    <p className="line-clamp-2">
-                      <span className="font-medium text-slate-700">
-                        Last error:
-                      </span>{" "}
-                      {connector.lastError}
-                    </p>
-                  ) : null}
-                  {connector.recentRuntimeFailureCount > 0 ? (
-                    <p>
-                      <span className="font-medium text-slate-700">
-                        Recent runtime failures:
-                      </span>{" "}
-                      {connector.recentRuntimeFailureCount}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        </QueueContainer>
-
-        <QueueContainer
           title="Audit records"
-          description={
-            logs.length === 0
-              ? "No audit records match the current filter."
-              : `${logs.length} most recent audit records`
-          }
+          description={`${rows.length} records from ActionLog and EventJournal`}
           filters={
             <FilterBar resetHref="/settings/audit">
-              <FilterField label="Action type">
-                <Input
-                  name="actionType"
-                  defaultValue={actionTypeFilter ?? ""}
-                  placeholder="Ex: MESSAGE_SENT"
-                />
+              <FilterField label="Actor">
+                <Input name="actorType" defaultValue={filters.actorType ?? ""} placeholder="USER" />
+              </FilterField>
+              <FilterField label="Action / event">
+                <Input name="actionType" defaultValue={filters.actionType ?? ""} placeholder="message_sent" />
+              </FilterField>
+              <FilterField label="Resource">
+                <Input name="resourceType" defaultValue={filters.resourceType ?? ""} placeholder="message" />
+              </FilterField>
+              <FilterField label="Platform">
+                <Input name="platform" defaultValue={filters.platform ?? ""} placeholder="EMAIL or SLACK" />
+              </FilterField>
+              <FilterField label="Conversation">
+                <Input name="conversationId" defaultValue={filters.conversationId ?? ""} />
+              </FilterField>
+              <FilterField label="Approval">
+                <Input name="approvalRequestId" defaultValue={filters.approvalRequestId ?? ""} />
+              </FilterField>
+              <FilterField label="Status">
+                <Input name="status" defaultValue={filters.status ?? ""} placeholder="FAILED" />
+              </FilterField>
+              <FilterField label="From">
+                <Input name="from" type="date" defaultValue={filters.from ?? ""} />
+              </FilterField>
+              <FilterField label="To">
+                <Input name="to" type="date" defaultValue={filters.to ?? ""} />
               </FilterField>
             </FilterBar>
           }
         >
-          <QueueTable<WorkspaceAuditLogRow>
-            rows={logs}
-            getRowId={(log: WorkspaceAuditLogRow) => log.id}
-            gridTemplateColumns="minmax(7.5rem,0.75fr) minmax(10rem,0.95fr) minmax(6.5rem,0.65fr) minmax(13rem,1.5fr)"
+          <QueueTable<OperatorAuditRow>
+            rows={rows}
+            getRowId={(row) => row.id}
+            gridTemplateColumns="minmax(8rem,.8fr) minmax(11rem,1fr) minmax(9rem,.8fr) minmax(16rem,1.6fr) minmax(12rem,1fr)"
             emptyState={
               <EmptyState
-                variant={actionTypeFilter ? "filtered" : "noData"}
+                variant="filtered"
                 title="No audit records"
-                description={
-                  actionTypeFilter
-                    ? "Clear the filter or search for another action type."
-                    : "Audit records will appear here after workspace actions are logged."
-                }
+                description="No action log or event journal records match these filters."
               />
             }
             columns={[
               {
                 id: "when",
                 header: "When",
-                mobileLabel: "When",
-                cell: (log: WorkspaceAuditLogRow) => (
+                cell: (row) => (
                   <div>
-                    <p>{formatTimestamp(log.createdAt)}</p>
-                    <p className="mt-1 truncate font-mono text-xs text-slate-500">
-                      {log.id}
+                    <p>{formatTimestamp(row.timestamp)}</p>
+                    <p className="mt-1 font-mono text-xs text-slate-500">
+                      {row.kind}:{row.id.slice(0, 8)}
                     </p>
                   </div>
                 ),
               },
               {
                 id: "action",
-                header: "Action",
-                mobileLabel: "Action",
-                cell: (log: WorkspaceAuditLogRow) => (
-                  <Badge className="max-w-full truncate" variant="neutral">
-                    {formatAuditLabel(log.actionType)}
-                  </Badge>
+                header: "Action / event",
+                cell: (row) => (
+                  <div className="space-y-1">
+                    <p className="font-medium text-slate-950">
+                      {formatOperatorType(row.actionOrEventType)}
+                    </p>
+                    {statusBadge(row)}
+                  </div>
                 ),
               },
               {
                 id: "actor",
                 header: "Actor",
-                mobileLabel: "Actor",
-                cell: (log: WorkspaceAuditLogRow) => (
-                  <div className="space-y-1">
-                    <p className="font-medium text-slate-950">{log.actorType}</p>
-                    {log.actorUserId ? (
-                      <p className="truncate font-mono text-xs text-slate-500">
-                        user:{log.actorUserId}
-                      </p>
-                    ) : null}
-                    {log.actorAgentAssignmentId ? (
-                      <p className="truncate font-mono text-xs text-slate-500">
-                        assignment:{log.actorAgentAssignmentId}
-                      </p>
-                    ) : null}
+                cell: (row) => row.actor,
+              },
+              {
+                id: "resource",
+                header: "Resource",
+                cell: (row) => (
+                  <div className="space-y-1 text-xs">
+                    <p>{row.summary}</p>
+                    <p>Resource: {row.resourceType ?? "Not recorded"} {row.resourceId ?? ""}</p>
+                    {row.attemptSummary ? <p>{row.attemptSummary}</p> : null}
                   </div>
                 ),
               },
               {
-                id: "context",
-                header: "Context",
-                mobileLabel: "Context",
-                cell: (log: WorkspaceAuditLogRow) => (
-                  <div className="space-y-1 text-xs leading-5">
-                    <p className="truncate">
-                      <span className="font-medium text-slate-600">
-                        Conversation:
-                      </span>{" "}
-                      {log.conversationId}
-                    </p>
-                    {log.messageId ? (
-                      <p className="truncate">
-                        <span className="font-medium text-slate-600">
-                          Message:
-                        </span>{" "}
-                        {log.messageId}
-                      </p>
-                    ) : null}
-                    {log.approvalRequestId ? (
-                      <p className="truncate">
-                        <span className="font-medium text-slate-600">
-                          Approval:
-                        </span>{" "}
-                        {log.approvalRequestId}
-                      </p>
-                    ) : null}
-                    <p className="line-clamp-2">
-                      <span className="font-medium text-slate-600">
-                        Metadata:
-                      </span>{" "}
-                      {formatMetadataSummary(log.metadataJson)}
-                    </p>
+                id: "links",
+                header: "Links",
+                cell: (row) => (
+                  <div className="flex flex-wrap gap-2">
+                    {row.conversationId
+                      ? linkPill(`/conversations/${row.conversationId}`, "Conversation")
+                      : null}
+                    {row.approvalRequestId
+                      ? linkPill(`/approvals/${row.approvalRequestId}`, "Approval")
+                      : null}
+                    {row.runtimeJobId
+                      ? linkPill(`/runtime-jobs/${row.runtimeJobId}`, "Runtime job")
+                      : null}
                   </div>
                 ),
               },
             ]}
+          />
+        </QueueContainer>
+
+        <QueueContainer
+          title="Recent timeline"
+          description="Compact sequence view of the same filtered records."
+        >
+          <Timeline
+            items={rows.slice(0, 12).map((row) => ({
+              id: row.id,
+              timestamp: formatTimestamp(row.timestamp),
+              label: formatOperatorType(row.actionOrEventType),
+              actor: row.actor,
+              source: row.kind,
+              severity: row.severity,
+              description: (
+                <MetadataList
+                  items={[
+                    { label: "Resource", value: `${row.resourceType ?? "n/a"} ${row.resourceId ?? ""}` },
+                    { label: "Metadata", value: row.metadataSummary },
+                    { label: "Processing", value: row.attemptSummary ?? "Not recorded" },
+                  ]}
+                />
+              ),
+              relatedLinks: (
+                <>
+                  {row.conversationId
+                    ? linkPill(`/conversations/${row.conversationId}`, "Conversation")
+                    : null}
+                  {row.approvalRequestId
+                    ? linkPill(`/approvals/${row.approvalRequestId}`, "Approval")
+                    : null}
+                </>
+              ),
+            }))}
+            emptyState={
+              <EmptyState
+                variant="noData"
+                title="No timeline records"
+                description="Audit records will appear here as workspace actions occur."
+              />
+            }
           />
         </QueueContainer>
       </PageContainer>

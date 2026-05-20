@@ -283,6 +283,8 @@ export async function GET(request: Request) {
 
     authMaterial.providerAccountId = externalAccountId;
 
+    const secretOperation = existingSecret ? "rotated" : "created";
+
     if (existingSecret) {
       await rotateSecret({
         secretRef: existingSecret.secretRef,
@@ -358,6 +360,7 @@ export async function GET(request: Request) {
             provider: "slack",
             slackTeamId: identity.teamId,
             slackTeamName: identity.teamName ?? null,
+            secretOperation,
           },
         },
       }),

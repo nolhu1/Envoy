@@ -3,6 +3,11 @@ import { getPrisma } from "@envoy/db";
 import { NextResponse } from "next/server";
 
 import { ingestGmailPushNotification } from "@/lib/gmail-ingestion";
+import {
+  checkRateLimit,
+  createRateLimitResponse,
+  getClientIpFromHeaders,
+} from "@/lib/rate-limit";
 import { sanitizeDiagnostics, sanitizeErrorMessage } from "@/lib/security";
 
 export const dynamic = "force-dynamic";
@@ -334,6 +339,16 @@ function logIgnoredNotification(input: {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit({
+    key: `gmail-pubsub:${getClientIpFromHeaders(request.headers)}`,
+    limit: 300,
+    windowMs: 60_000,
+  });
+
+  if (!rateLimit.allowed) {
+    return createRateLimitResponse(rateLimit);
+  }
+
   if (!(await verifyPubSubRequest(request))) {
     return jsonResponse(
       {

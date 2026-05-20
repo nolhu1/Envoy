@@ -61,6 +61,21 @@ export async function ProductShell({
             href: "/settings/audit",
             active: activeSection === "operator",
           },
+          {
+            label: "Integration Ops",
+            href: "/integration-ops",
+            active: activeSection === "operator",
+          },
+          {
+            label: "Agent Runs",
+            href: "/agent-runs",
+            active: activeSection === "operator",
+          },
+          {
+            label: "Approval History",
+            href: "/approval-history",
+            active: activeSection === "operator",
+          },
         ]
       : []),
   ];

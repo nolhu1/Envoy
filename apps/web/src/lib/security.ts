@@ -11,8 +11,16 @@ const SENSITIVE_KEY_PATTERNS = [
   "cookie",
   "api_key",
   "apikey",
+  "api-key",
   "private_key",
   "client_secret",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "authmaterial",
+  "bearer",
+  "openai",
+  "slacksigningsecret",
   "refresh",
 ] as const;
 
@@ -20,6 +28,7 @@ const TOKEN_VALUE_PATTERNS = [
   /xox[baprs]-[a-zA-Z0-9-]+/g,
   /\b(Bearer)\s+[a-zA-Z0-9\-._~+/]+=*/gi,
   /\bya29\.[a-zA-Z0-9\-._~+/]+=*/g,
+  /\bsk-[a-zA-Z0-9_-]{20,}\b/g,
   /\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
 ] as const;
 
@@ -125,4 +134,24 @@ export function sanitizeUiText(
   }
 
   return redactSensitiveText(value);
+}
+
+export function formatUserSafeError(error: unknown, fallback = "Request failed.") {
+  return sanitizeErrorMessage(error, fallback);
+}
+
+export function formatOperatorSafeError(input: {
+  error: unknown;
+  fallback: string;
+  correlationId?: string | null;
+  retryable?: boolean | null;
+}) {
+  const message = sanitizeErrorMessage(input.error, input.fallback);
+
+  return {
+    message,
+    correlationId: input.correlationId ?? null,
+    retryable: input.retryable ?? null,
+    errorClass: input.error instanceof Error ? input.error.name : "UnknownError",
+  };
 }

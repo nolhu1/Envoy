@@ -29,6 +29,7 @@ import {
   publishEnvoyEvent,
 } from "@/lib/event-publisher";
 import { sanitizeUiErrorMessage } from "@/lib/security";
+import { assertRateLimit } from "@/lib/rate-limit";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import { requireAuthenticatedEntryPoint } from "@/lib/workspace-guards";
 import { generateDraftFromPlanner } from "@/lib/draft-generator";
@@ -38,6 +39,19 @@ export async function startGmailConnectAction() {
   const authContext = await requireAuthenticatedEntryPoint({
     permission: PERMISSIONS.CONNECT_INTEGRATIONS,
   });
+  try {
+    assertRateLimit({
+      key: `connect:gmail:${authContext.userId}`,
+      limit: 6,
+      windowMs: 15 * 60_000,
+    });
+  } catch (error) {
+    redirect(
+      `/settings/workspace?integration=gmail&action=reconnect&status=error&message=${encodeURIComponent(
+        sanitizeUiErrorMessage(error) || "Gmail reconnect is temporarily rate limited.",
+      )}`,
+    );
+  }
   const workspace = await getCurrentWorkspace();
 
   if (!workspace || workspace.id !== authContext.workspaceId) {
@@ -57,6 +71,19 @@ export async function startSlackConnectAction() {
   const authContext = await requireAuthenticatedEntryPoint({
     permission: PERMISSIONS.CONNECT_INTEGRATIONS,
   });
+  try {
+    assertRateLimit({
+      key: `connect:slack:${authContext.userId}`,
+      limit: 6,
+      windowMs: 15 * 60_000,
+    });
+  } catch (error) {
+    redirect(
+      `/settings/workspace?integration=slack&action=reconnect&status=error&message=${encodeURIComponent(
+        sanitizeUiErrorMessage(error) || "Slack reconnect is temporarily rate limited.",
+      )}`,
+    );
+  }
   const workspace = await getCurrentWorkspace();
 
   if (!workspace || workspace.id !== authContext.workspaceId) {
@@ -342,6 +369,22 @@ export async function syncIntegrationAction(formData: FormData) {
     throw new Error("No managed integration is connected for this workspace.");
   }
 
+  try {
+    assertRateLimit({
+      key: `manual-sync:${authContext.userId}:${integration.id}`,
+      limit: 12,
+      windowMs: 10 * 60_000,
+    });
+  } catch (error) {
+    redirect(
+      `/settings/workspace?integration=${
+        integration.platform === "EMAIL" ? "gmail" : "slack"
+      }&action=sync&status=error&message=${encodeURIComponent(
+        toSyncErrorMessage(error),
+      )}`,
+    );
+  }
+
   if (
     integration.status !== "CONNECTED" &&
     integration.status !== "SYNC_IN_PROGRESS"
@@ -415,7 +458,8 @@ function buildManualWatchRenewalDedupeKey(input: {
 }
 
 export async function renewGmailWatchAction(formData: FormData) {
-  const { workspace } = await requireWorkspaceForIntegrationManagement();
+  const { authContext, workspace } =
+    await requireWorkspaceForIntegrationManagement();
   const integrationId = String(formData.get("integrationId") ?? "").trim();
 
   if (!integrationId) {
@@ -429,6 +473,20 @@ export async function renewGmailWatchAction(formData: FormData) {
 
   if (!integration || integration.platform !== "EMAIL") {
     throw new Error("No Gmail integration is connected for this workspace.");
+  }
+
+  try {
+    assertRateLimit({
+      key: `gmail-watch-renew:${authContext.userId}:${integration.id}`,
+      limit: 6,
+      windowMs: 15 * 60_000,
+    });
+  } catch (error) {
+    redirect(
+      `/settings/workspace?integration=gmail&action=watch&status=error&message=${encodeURIComponent(
+        sanitizeUiErrorMessage(error) || "Unable to renew Gmail watch.",
+      )}`,
+    );
   }
 
   let queuedRedirectHref: string;
@@ -668,7 +726,7 @@ export async function previewDraftGeneratorAction(formData: FormData) {
       throw error;
     }
 
-    const message = sanitizeUiErrorMessage(error);
+    const message = sanitizeUiErrorMessage(error) || "Draft preview failed.";
     redirect(
       `/settings/workspace?integration=draft-preview&action=preview&status=error&message=${encodeURIComponent(
         message,

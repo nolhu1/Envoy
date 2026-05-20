@@ -6,14 +6,41 @@ import CredentialsProvider from "next-auth/providers/credentials";
 
 import { getPrisma } from "@envoy/db";
 import type { AppJwt, AppUserRole } from "@/lib/auth-types";
+import { validateProductionSecurityConfig } from "@/lib/deployment-security";
+import { assertRateLimit } from "@/lib/rate-limit";
+
+const SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
+const REQUIRE_EMAIL_VERIFICATION_ENV = "AUTH_REQUIRE_EMAIL_VERIFICATION";
+
+function shouldRequireEmailVerification() {
+  return process.env[REQUIRE_EMAIL_VERIFICATION_ENV] === "true";
+}
 
 export function getAuthOptions(): NextAuthOptions {
+  validateProductionSecurityConfig();
+
   const prisma = getPrisma();
 
   return {
     adapter: PrismaAdapter(prisma),
     session: {
       strategy: "jwt",
+      maxAge: SESSION_MAX_AGE_SECONDS,
+      updateAge: 15 * 60,
+    },
+    cookies: {
+      sessionToken: {
+        name:
+          process.env.NODE_ENV === "production"
+            ? "__Secure-next-auth.session-token"
+            : "next-auth.session-token",
+        options: {
+          httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+          secure: process.env.NODE_ENV === "production",
+        },
+      },
     },
     pages: {
       signIn: "/sign-in",
@@ -33,6 +60,12 @@ export function getAuthOptions(): NextAuthOptions {
             return null;
           }
 
+          assertRateLimit({
+            key: `login:${email}`,
+            limit: 8,
+            windowMs: 15 * 60_000,
+          });
+
           const user = await prisma.user.findUnique({
             where: { email },
             select: {
@@ -42,16 +75,22 @@ export function getAuthOptions(): NextAuthOptions {
               passwordHash: true,
               role: true,
               workspaceId: true,
+              emailVerified: true,
+              disabledAt: true,
             },
           });
 
-          if (!user?.passwordHash) {
+          if (!user?.passwordHash || user.disabledAt) {
             return null;
           }
 
           const isValidPassword = await compare(password, user.passwordHash);
 
           if (!isValidPassword) {
+            return null;
+          }
+
+          if (shouldRequireEmailVerification() && !user.emailVerified) {
             return null;
           }
 

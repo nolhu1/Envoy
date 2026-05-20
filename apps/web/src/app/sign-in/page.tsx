@@ -12,6 +12,8 @@ type SignInPageProps = {
     accepted?: string;
     email?: string;
     registered?: string;
+    reset?: string;
+    verify?: string;
   }>;
 };
 
@@ -26,6 +28,8 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   const accepted = params?.accepted === "1";
   const acceptedEmail = params?.email;
   const registered = params?.registered === "1";
+  const reset = params?.reset === "1";
+  const verify = params?.verify === "1";
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,116,144,0.14),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#eef2ff_100%)] px-6 py-16">
@@ -55,6 +59,13 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             {registered ? (
               <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 Account created. You can sign in now.
+                {verify ? " Email verification has been prepared." : ""}
+              </p>
+            ) : null}
+
+            {reset ? (
+              <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                Password reset complete. Sign in with your new password.
               </p>
             ) : null}
 
@@ -71,6 +82,15 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
               Need an account?{" "}
               <Link href="/sign-up" className="font-medium text-slate-950">
                 Create one
+              </Link>
+            </p>
+            <p className="mt-3 text-sm text-slate-600">
+              Forgot your password?{" "}
+              <Link
+                href="/password-reset/request"
+                className="font-medium text-slate-950"
+              >
+                Request a reset
               </Link>
             </p>
           </section>

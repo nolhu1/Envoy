@@ -275,6 +275,8 @@ export async function acceptInvite({
         name: normalizedName,
         role: invite.role,
         passwordHash,
+        emailVerified: new Date(),
+        passwordChangedAt: new Date(),
       },
       select: {
         id: true,

@@ -35,6 +35,7 @@ export async function createWorkspaceForSignedUpUser({
           name: name ?? null,
           role: "ADMIN",
           passwordHash,
+          passwordChangedAt: new Date(),
         },
       },
     },

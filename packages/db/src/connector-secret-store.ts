@@ -96,6 +96,10 @@ function getEncryptionKey() {
   );
 }
 
+export function validateSecretEncryptionConfig() {
+  getEncryptionKey();
+}
+
 function encryptPayload(payload: SecretPayload) {
   const key = getEncryptionKey();
   const iv = randomBytes(IV_BYTE_LENGTH);

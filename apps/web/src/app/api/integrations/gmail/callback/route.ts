@@ -324,6 +324,8 @@ export async function GET(request: Request) {
 
     authMaterial.providerAccountId = externalAccountId;
 
+    const secretOperation = existingSecret ? "rotated" : "created";
+
     if (existingSecret) {
       await rotateSecret({
         secretRef: existingSecret.secretRef,
@@ -407,6 +409,7 @@ export async function GET(request: Request) {
           metadata: {
             provider: "gmail",
             connectedEmail: profile.emailAddress,
+            secretOperation,
           },
         },
       }),

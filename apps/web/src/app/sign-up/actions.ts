@@ -4,6 +4,9 @@ import { hash } from "bcryptjs";
 import { redirect } from "next/navigation";
 
 import { getPrisma } from "@envoy/db";
+import { createEmailVerificationToken } from "@/lib/account-lifecycle";
+import { assertRateLimit } from "@/lib/rate-limit";
+import { sanitizeUiErrorMessage } from "@/lib/security";
 import { createWorkspaceForSignedUpUser } from "@/lib/workspace";
 
 export type SignUpState = {
@@ -31,6 +34,16 @@ export async function signUp(
     return { error: "Password must be at least 8 characters." };
   }
 
+  try {
+    assertRateLimit({
+      key: `sign-up:${email}`,
+      limit: 5,
+      windowMs: 60 * 60_000,
+    });
+  } catch (error) {
+    return { error: sanitizeUiErrorMessage(error) };
+  }
+
   const prisma = getPrisma();
 
   const existingUser = await prisma.user.findUnique({
@@ -50,5 +63,7 @@ export async function signUp(
     passwordHash,
   });
 
-  redirect("/sign-in?registered=1");
+  await createEmailVerificationToken(email);
+
+  redirect("/sign-in?registered=1&verify=1");
 }

@@ -15,6 +15,7 @@ import {
   normalizeAgentTriggerTypes,
 } from "@/lib/agent-trigger-rules";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
+import { assertRateLimit } from "@/lib/rate-limit";
 import { sanitizeUiErrorMessage } from "@/lib/security";
 import {
   WORKER_JOB_TYPES,
@@ -72,6 +73,21 @@ export async function sendManualReplyAction(formData: FormData) {
       reply: "error",
       message: "The conversation could not be loaded.",
     }));
+  }
+
+  try {
+    assertRateLimit({
+      key: `manual-reply:${authContext.userId}:${conversation.id}`,
+      limit: 20,
+      windowMs: 5 * 60_000,
+    });
+  } catch (error) {
+    redirect(
+      buildThreadRedirect(conversation.id, {
+        reply: "error",
+        message: sanitizeUiErrorMessage(error) || "Reply is temporarily rate limited.",
+      }),
+    );
   }
 
   if (conversation.platform !== "EMAIL" && conversation.platform !== "SLACK") {
@@ -147,7 +163,7 @@ export async function sendManualReplyAction(formData: FormData) {
 
     redirect(buildThreadRedirect(conversation.id, {
       reply: "error",
-      message: sanitizeUiErrorMessage(error),
+      message: sanitizeUiErrorMessage(error) || "Unable to queue reply.",
     }));
   }
 }
@@ -338,6 +354,12 @@ export async function runConversationAgentAction(formData: FormData) {
   }
 
   try {
+    assertRateLimit({
+      key: `manual-agent:${authContext.userId}:${conversation.id}`,
+      limit: 10,
+      windowMs: 5 * 60_000,
+    });
+
     await enqueueRuntimeJob({
       queueName: WORKER_QUEUE_NAMES.AGENT,
       jobType: WORKER_JOB_TYPES.AGENT_RUN_MANUAL,
