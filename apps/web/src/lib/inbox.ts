@@ -72,6 +72,13 @@ type InboxConversationRecord = {
   }>;
   _count?: {
     messages?: number;
+    approvalRequests?: number;
+  };
+  integration: {
+    id: string;
+    status: "PENDING" | "CONNECTED" | "SYNC_IN_PROGRESS" | "ERROR" | "DISCONNECTED";
+    displayName: string | null;
+    platformMetadataJson: unknown;
   };
   assignedAgent: {
     id: string;
@@ -90,6 +97,27 @@ export type InboxRow = {
   assignedAgentLabel: string | null;
   conversationState: InboxConversationRecord["state"];
   hasSendFailure: boolean;
+  hasQueuedSend: boolean;
+  hasPendingApproval: boolean;
+  integrationStatus: InboxConversationRecord["integration"]["status"];
+  integrationLabel: string;
+  integrationNeedsAttention: boolean;
+  syncInProgress: boolean;
+};
+
+export type InboxPagination = {
+  page: number;
+  pageSize: number;
+};
+
+export type InboxPage = {
+  rows: InboxRow[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 };
 
 const INBOX_PLATFORM_OPTIONS = new Set<InboxFilters["platform"]>([
@@ -109,6 +137,9 @@ const INBOX_STATE_OPTIONS = new Set<InboxFilters["state"]>([
   "CLOSED",
 ]);
 const INBOX_AGENT_OPTIONS = new Set<InboxAgentFilter>(["any", "has", "none"]);
+const DEFAULT_INBOX_PAGE = 1;
+const DEFAULT_INBOX_PAGE_SIZE = 25;
+const MAX_INBOX_PAGE_SIZE = 100;
 
 function readSearchParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -140,6 +171,26 @@ export function readInboxFilters(
       awaitingApproval === "true" ||
       awaitingApproval === "1" ||
       awaitingApproval === "on",
+  };
+}
+
+export function readInboxPagination(
+  searchParams?: Record<string, string | string[] | undefined>,
+): InboxPagination {
+  const rawPage = Number(readSearchParam(searchParams?.page) ?? DEFAULT_INBOX_PAGE);
+  const rawPageSize = Number(
+    readSearchParam(searchParams?.pageSize) ?? DEFAULT_INBOX_PAGE_SIZE,
+  );
+  const page = Number.isFinite(rawPage)
+    ? Math.max(1, Math.trunc(rawPage))
+    : DEFAULT_INBOX_PAGE;
+  const pageSize = Number.isFinite(rawPageSize)
+    ? Math.max(1, Math.min(Math.trunc(rawPageSize), MAX_INBOX_PAGE_SIZE))
+    : DEFAULT_INBOX_PAGE_SIZE;
+
+  return {
+    page,
+    pageSize,
   };
 }
 
@@ -284,6 +335,9 @@ function buildLastActivityAt(record: InboxConversationRecord) {
 }
 
 function toInboxRow(record: InboxConversationRecord): InboxRow {
+  const failedOutboundCount = record._count?.messages ?? 0;
+  const latestMessage = record.messages[0];
+
   return {
     conversationId: record.id,
     platform: record.platform,
@@ -293,173 +347,181 @@ function toInboxRow(record: InboxConversationRecord): InboxRow {
     lastActivityAt: buildLastActivityAt(record),
     assignedAgentLabel: buildAssignedAgentLabel(record),
     conversationState: record.state,
-    hasSendFailure:
-      record.messages.some(
-        (message) =>
-          message.direction === "OUTBOUND" && message.status === "FAILED",
-      ) || (record._count?.messages ?? 0) > 0,
+    hasSendFailure: failedOutboundCount > 0,
+    hasQueuedSend:
+      latestMessage?.direction === "OUTBOUND" && latestMessage.status === "QUEUED",
+    hasPendingApproval:
+      record.state === "AWAITING_APPROVAL" ||
+      (record._count?.approvalRequests ?? 0) > 0 ||
+      latestMessage?.status === "PENDING_APPROVAL",
+    integrationStatus: record.integration.status,
+    integrationLabel: record.integration.displayName ?? (
+      record.platform === "EMAIL" ? "Gmail" : "Slack"
+    ),
+    integrationNeedsAttention:
+      record.integration.status === "ERROR" ||
+      record.integration.status === "DISCONNECTED" ||
+      record.integration.status === "PENDING",
+    syncInProgress: record.integration.status === "SYNC_IN_PROGRESS",
   };
 }
 
-export async function getCurrentWorkspaceInboxRows() {
-  const authContext = await getCurrentAppAuthContext();
-
-  if (!authContext) {
-    return [];
-  }
-
-  const prisma = getPrisma();
-  const conversations = await prisma.conversation.findMany({
-    where: buildInboxConversationWhere({
-      workspaceId: authContext.workspaceId,
-      filters: {
-        query: "",
-        platform: "ALL",
-        state: "ALL",
-        assigneeId: "ALL",
-        agent: "any",
-        awaitingApproval: false,
-      },
-    }),
+const inboxConversationSelect = {
+  id: true,
+  platform: true,
+  subject: true,
+  state: true,
+  lastMessageAt: true,
+  createdAt: true,
+  participants: {
     select: {
       id: true,
-      platform: true,
-      subject: true,
-      state: true,
-      lastMessageAt: true,
+      externalParticipantId: true,
+      displayName: true,
+      email: true,
+      handle: true,
+      isInternal: true,
+    },
+    orderBy: [{ isInternal: "asc" as const }, { createdAt: "asc" as const }],
+  },
+  messages: {
+    where: {
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      bodyText: true,
+      bodyHtml: true,
+      status: true,
+      direction: true,
+      senderType: true,
+      sentAt: true,
+      receivedAt: true,
       createdAt: true,
-      participants: {
-        select: {
-          id: true,
-          externalParticipantId: true,
-          displayName: true,
-          email: true,
-          handle: true,
-          isInternal: true,
-        },
-        orderBy: [{ isInternal: "asc" }, { createdAt: "asc" }],
-      },
+    },
+    orderBy: [
+      { sentAt: "desc" as const },
+      { receivedAt: "desc" as const },
+      { createdAt: "desc" as const },
+    ],
+    take: 1,
+  },
+  _count: {
+    select: {
       messages: {
         where: {
           deletedAt: null,
-        },
-        select: {
-          id: true,
-          bodyText: true,
-          bodyHtml: true,
-          status: true,
-          direction: true,
-          senderType: true,
-          sentAt: true,
-          receivedAt: true,
-          createdAt: true,
-        },
-        orderBy: [{ sentAt: "desc" }, { receivedAt: "desc" }, { createdAt: "desc" }],
-        take: 1,
-      },
-      _count: {
-        select: {
-          messages: {
-            where: {
-              deletedAt: null,
-              direction: "OUTBOUND",
-              status: "FAILED",
-            },
-          },
+          direction: "OUTBOUND" as const,
+          status: "FAILED" as const,
         },
       },
-      assignedAgent: {
-        select: {
-          id: true,
-          goal: true,
-          isActive: true,
+      approvalRequests: {
+        where: {
+          status: "PENDING" as const,
         },
       },
     },
-    orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+  },
+  integration: {
+    select: {
+      id: true,
+      status: true,
+      displayName: true,
+      platformMetadataJson: true,
+    },
+  },
+  assignedAgent: {
+    select: {
+      id: true,
+      goal: true,
+      isActive: true,
+    },
+  },
+};
+
+const inboxConversationOrderBy = [
+  { lastMessageAt: "desc" as const },
+  { updatedAt: "desc" as const },
+  { id: "desc" as const },
+];
+
+export async function getCurrentWorkspaceInboxRows() {
+  const page = await getCurrentWorkspaceInboxPageWithFilters({
+    query: "",
+    platform: "ALL",
+    state: "ALL",
+    assigneeId: "ALL",
+    agent: "any",
+    awaitingApproval: false,
+  }, {
+    page: DEFAULT_INBOX_PAGE,
+    pageSize: MAX_INBOX_PAGE_SIZE,
   });
 
-  return conversations.map((conversation) =>
-    toInboxRow(conversation as InboxConversationRecord),
-  );
+  return page.rows;
 }
 
 export async function getCurrentWorkspaceInboxRowsWithFilters(
   filters: InboxFilters,
 ) {
+  const page = await getCurrentWorkspaceInboxPageWithFilters(filters, {
+    page: DEFAULT_INBOX_PAGE,
+    pageSize: MAX_INBOX_PAGE_SIZE,
+  });
+
+  return page.rows;
+}
+
+export async function getCurrentWorkspaceInboxPageWithFilters(
+  filters: InboxFilters,
+  pagination: InboxPagination,
+): Promise<InboxPage> {
   const authContext = await getCurrentAppAuthContext();
 
   if (!authContext) {
-    return [];
+    return {
+      rows: [],
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      totalCount: 0,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    };
   }
 
   const prisma = getPrisma();
-  const conversations = await prisma.conversation.findMany({
-    where: buildInboxConversationWhere({
-      workspaceId: authContext.workspaceId,
-      filters,
-    }),
-    select: {
-      id: true,
-      platform: true,
-      subject: true,
-      state: true,
-      lastMessageAt: true,
-      createdAt: true,
-      participants: {
-        select: {
-          id: true,
-          externalParticipantId: true,
-          displayName: true,
-          email: true,
-          handle: true,
-          isInternal: true,
-        },
-        orderBy: [{ isInternal: "asc" }, { createdAt: "asc" }],
-      },
-      messages: {
-        where: {
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-          bodyText: true,
-          bodyHtml: true,
-          status: true,
-          direction: true,
-          senderType: true,
-          sentAt: true,
-          receivedAt: true,
-          createdAt: true,
-        },
-        orderBy: [{ sentAt: "desc" }, { receivedAt: "desc" }, { createdAt: "desc" }],
-        take: 1,
-      },
-      _count: {
-        select: {
-          messages: {
-            where: {
-              deletedAt: null,
-              direction: "OUTBOUND",
-              status: "FAILED",
-            },
-          },
-        },
-      },
-      assignedAgent: {
-        select: {
-          id: true,
-          goal: true,
-          isActive: true,
-        },
-      },
-    },
-    orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+  const where = buildInboxConversationWhere({
+    workspaceId: authContext.workspaceId,
+    filters,
   });
+  const skip = (pagination.page - 1) * pagination.pageSize;
+  // Avoid the pg adapter's shared-client warning on concurrent transaction queries
+  // during the post-login homepage render. These reads do not need snapshot semantics.
+  const totalCount = await prisma.conversation.count({
+    where,
+  });
+  const conversations = await prisma.conversation.findMany({
+    where,
+    select: inboxConversationSelect,
+    orderBy: inboxConversationOrderBy,
+    skip,
+    take: pagination.pageSize,
+  });
+  const totalPages =
+    totalCount === 0 ? 0 : Math.ceil(totalCount / pagination.pageSize);
 
-  return conversations.map((conversation) =>
-    toInboxRow(conversation as InboxConversationRecord),
-  );
+  return {
+    rows: conversations.map((conversation) =>
+      toInboxRow(conversation as InboxConversationRecord),
+    ),
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalCount,
+    totalPages,
+    hasNextPage: pagination.page < totalPages,
+    hasPreviousPage: pagination.page > 1,
+  };
 }
 
 export async function getCurrentWorkspaceInboxAssigneeOptions() {

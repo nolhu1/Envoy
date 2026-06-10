@@ -32,6 +32,7 @@ import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getCurrentWorkspaceConversationThread } from "@/lib/thread";
 import {
   assignConversationAgentAction,
+  retryFailedOutboundMessageAction,
   runConversationAgentAction,
   sendManualReplyAction,
   unassignConversationAgentAction,
@@ -123,6 +124,12 @@ export default async function ConversationThreadPage({
         </Alert>
       ) : null}
 
+      {replyStatus === "retrying" ? (
+        <Alert severity="neutral" title="Retry queued">
+          The failed send was queued for retry in the worker.
+        </Alert>
+      ) : null}
+
       {replyStatus === "error" && replyMessage ? (
         <Alert severity="critical" title="Reply failed">
           {replyMessage}
@@ -135,6 +142,18 @@ export default async function ConversationThreadPage({
             thread.recentSendFailure.failedAt,
           )}.`}
           details={thread.recentSendFailure.errorSummary}
+          action={
+            <form action={retryFailedOutboundMessageAction}>
+              <input
+                type="hidden"
+                name="messageId"
+                value={thread.recentSendFailure.messageId}
+              />
+              <Button type="submit" size="sm" variant="danger">
+                Retry send
+              </Button>
+            </form>
+          }
         />
       ) : null}
 
@@ -221,6 +240,7 @@ export default async function ConversationThreadPage({
             {thread.platform === "SLACK" ? "Slack" : "Gmail"}
           </Badge>
           <StatusBadge domain="conversation" status={thread.conversationState} />
+          <StatusBadge domain="integration" status={thread.integrationStatus} />
           <Badge variant={thread.assignedAgentLabel ? "info" : "neutral"}>
             {thread.assignedAgentLabel ?? "Unassigned"}
           </Badge>
@@ -241,7 +261,74 @@ export default async function ConversationThreadPage({
           timestamp: formatTimestamp(message.timestamp),
           body: message.bodyText,
           failed: message.status === "FAILED",
-          metadata: message.externalMessageId ?? message.id,
+          groupedWithPrevious: message.groupedWithPrevious,
+          metadata: (
+            <div className="space-y-1">
+              <p>{message.providerContext ?? message.externalMessageId ?? message.id}</p>
+              {message.approval ? (
+                <p>
+                  Approval{" "}
+                  <a
+                    href={`/approvals/${message.approval.id}`}
+                    className="font-medium underline"
+                  >
+                    {message.approval.status.toLowerCase()}
+                  </a>
+                  {message.approval.editedBeforeSend
+                    ? " - edited before send"
+                    : ""}
+                </p>
+              ) : null}
+              {message.runtimeJob ? (
+                <p>
+                  Runtime job{" "}
+                  <a
+                    href={`/runtime-jobs/${message.runtimeJob.id}`}
+                    className="font-medium underline"
+                  >
+                    {message.runtimeJob.status.toLowerCase()}
+                  </a>{" "}
+                  ({message.runtimeJob.attemptsMade}/{message.runtimeJob.maxAttempts}
+                  {" attempts"})
+                </p>
+              ) : null}
+              {message.recoveryState === "retryable" ? (
+                <form action={retryFailedOutboundMessageAction} className="pt-1">
+                  <input type="hidden" name="messageId" value={message.id} />
+                  <Button type="submit" size="sm" variant="danger">
+                    Retry send
+                  </Button>
+                </form>
+              ) : null}
+              {message.recoveryState === "retrying" ? (
+                <p className="font-medium text-sky-700">
+                  Queued or retrying in worker.
+                </p>
+              ) : null}
+              {message.recoveryState === "waiting_for_reconnect" ? (
+                <p className="font-medium text-amber-800">
+                  Waiting for reconnect before this send can be retried.
+                </p>
+              ) : null}
+              {message.recoveryState === "dead_lettered" ? (
+                <div className="space-y-2">
+                  <p className="font-medium text-red-700">
+                    Dead-lettered after retries. Retry is available after the
+                    root cause is fixed.
+                  </p>
+                  <form action={retryFailedOutboundMessageAction}>
+                    <input type="hidden" name="messageId" value={message.id} />
+                    <Button type="submit" size="sm" variant="danger">
+                      Retry send
+                    </Button>
+                  </form>
+                </div>
+              ) : null}
+              {message.failureSummary ? (
+                <p className="text-red-700">{message.failureSummary}</p>
+              ) : null}
+            </div>
+          ),
           attachments:
             message.attachments.length > 0 ? (
               <div className="space-y-2">

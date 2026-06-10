@@ -34,6 +34,10 @@ type ThreadConversationRecord = {
   lastMessageAt: Date | null;
   createdAt: Date;
   platformMetadataJson: unknown;
+  integration: {
+    status: "PENDING" | "CONNECTED" | "SYNC_IN_PROGRESS" | "ERROR" | "DISCONNECTED";
+    displayName: string | null;
+  };
   participants: Array<{
     id: string;
     externalParticipantId: string | null;
@@ -91,6 +95,11 @@ type ThreadConversationRecord = {
       externalUrl: string | null;
       platformMetadataJson: unknown;
     }>;
+    approvalRequests: Array<{
+      id: string;
+      status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+      editedContent: string | null;
+    }>;
   }>;
 };
 
@@ -114,6 +123,23 @@ export type ThreadMessageRow = {
   bodyText: string;
   timestamp: Date;
   attachments: ThreadAttachmentRow[];
+  groupedWithPrevious: boolean;
+  providerContext: string | null;
+  recoveryState: "none" | "retryable" | "retrying" | "dead_lettered" | "waiting_for_reconnect";
+  failureSummary: string | null;
+  runtimeJob: {
+    id: string;
+    status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "DEAD_LETTERED" | "CANCELLED";
+    attemptsMade: number;
+    maxAttempts: number;
+    failedAt: Date | null;
+    deadLetteredAt: Date | null;
+  } | null;
+  approval: {
+    id: string;
+    status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+    editedBeforeSend: boolean;
+  } | null;
 };
 
 export type ConversationThread = {
@@ -123,6 +149,8 @@ export type ConversationThread = {
   participantSummary: string;
   subject: string | null;
   conversationState: ThreadConversationRecord["state"];
+  integrationStatus: ThreadConversationRecord["integration"]["status"];
+  integrationLabel: string;
   lastActivityAt: Date;
   assignedAgentLabel: string | null;
   assignedAgent: ThreadConversationRecord["assignedAgent"] | null;
@@ -135,6 +163,17 @@ export type ConversationThread = {
     failedAt: Date;
     errorSummary: string | null;
   } | null;
+};
+
+type RuntimeJobForMessage = {
+  id: string;
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "DEAD_LETTERED" | "CANCELLED";
+  payloadJson: unknown;
+  attemptsMade: number;
+  maxAttempts: number;
+  failedAt: Date | null;
+  deadLetteredAt: Date | null;
+  lastErrorJson: unknown;
 };
 
 function buildAssignedAgentLabel(record: ThreadConversationRecord) {
@@ -183,6 +222,39 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readRuntimeJobMessageId(payloadJson: unknown) {
+  return isJsonObject(payloadJson) ? readString(payloadJson.messageId) : null;
+}
+
+function readFailureSummaryFromRuntimeJob(runtimeJob: RuntimeJobForMessage | null) {
+  if (!runtimeJob?.lastErrorJson) {
+    return null;
+  }
+
+  if (isJsonObject(runtimeJob.lastErrorJson)) {
+    return sanitizeUiErrorMessage(readString(runtimeJob.lastErrorJson.message));
+  }
+
+  return sanitizeUiErrorMessage(String(runtimeJob.lastErrorJson));
+}
+
+function buildProviderContext(
+  message: ThreadConversationRecord["messages"][number],
+) {
+  const metadata = isJsonObject(message.platformMetadataJson)
+    ? message.platformMetadataJson
+    : {};
+  const parts = [
+    message.platform === "EMAIL" ? "Gmail" : "Slack DM",
+    readString(metadata.from) ? `from ${readString(metadata.from)}` : null,
+    readString(metadata.to) ? `to ${readString(metadata.to)}` : null,
+    readString(metadata.channelId) ? `channel ${readString(metadata.channelId)}` : null,
+    readString(metadata.threadTs) ? `thread ${readString(metadata.threadTs)}` : null,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" - ") : null;
 }
 
 function hasSlackPrivateDownloadUrl(attachment: {
@@ -283,17 +355,68 @@ function buildLastActivityAt(record: ThreadConversationRecord) {
 
 function toThreadMessageRow(
   message: ThreadConversationRecord["messages"][number],
+  runtimeJob: RuntimeJobForMessage | null,
+  previous: ThreadConversationRecord["messages"][number] | null,
+  integrationStatus: ThreadConversationRecord["integration"]["status"],
 ): ThreadMessageRow {
+  const timestamp = buildMessageTimestamp(message);
+  const previousTimestamp = previous ? buildMessageTimestamp(previous) : null;
+  const senderLabel = buildMessageSenderLabel(message);
+  const approval = message.approvalRequests[0] ?? null;
+  const groupedWithPrevious = Boolean(
+    previous &&
+      previous.direction === message.direction &&
+      buildMessageSenderLabel(previous) === senderLabel &&
+      previousTimestamp &&
+      Math.abs(timestamp.getTime() - previousTimestamp.getTime()) <= 5 * 60_000,
+  );
+  const runtimeStatus = runtimeJob?.status ?? null;
+  const recoveryState =
+    message.status === "FAILED" && integrationStatus !== "CONNECTED"
+      ? "waiting_for_reconnect"
+      : message.status === "QUEUED" ||
+          runtimeStatus === "QUEUED" ||
+          runtimeStatus === "RUNNING"
+        ? "retrying"
+        : runtimeStatus === "DEAD_LETTERED"
+          ? "dead_lettered"
+          : message.status === "FAILED"
+            ? "retryable"
+            : "none";
+
   return {
     id: message.id,
     platform: message.platform,
     externalMessageId: message.externalMessageId,
     status: message.status,
-    senderLabel: buildMessageSenderLabel(message),
+    senderLabel,
     senderType: message.senderType,
     direction: message.direction,
     bodyText: buildMessageBody(message),
-    timestamp: buildMessageTimestamp(message),
+    timestamp,
+    groupedWithPrevious,
+    providerContext: buildProviderContext(message),
+    recoveryState,
+    failureSummary:
+      readFailureSummaryFromMetadata(message.platformMetadataJson) ??
+      readFailureSummaryFromRuntimeJob(runtimeJob),
+    runtimeJob: runtimeJob
+      ? {
+          id: runtimeJob.id,
+          status: runtimeJob.status,
+          attemptsMade: runtimeJob.attemptsMade,
+          maxAttempts: runtimeJob.maxAttempts,
+          failedAt: runtimeJob.failedAt,
+          deadLetteredAt: runtimeJob.deadLetteredAt,
+        }
+      : null,
+    approval: approval
+      ? {
+          id: approval.id,
+          status: approval.status,
+          editedBeforeSend: Boolean(approval.editedContent?.trim()),
+        }
+      : null,
     attachments: message.attachments.map((attachment) => ({
       id: attachment.id,
       fileName: attachment.fileName,
@@ -355,7 +478,10 @@ function resolveRecentSendFailure(record: ThreadConversationRecord) {
   };
 }
 
-function toConversationThread(record: ThreadConversationRecord): ConversationThread {
+function toConversationThread(
+  record: ThreadConversationRecord,
+  runtimeJobsByMessageId: Map<string, RuntimeJobForMessage>,
+): ConversationThread {
   const enabledTriggerTypes =
     record.assignedAgent && record.assignedAgent.isActive
       ? getEnabledAgentTriggerTypes(record.assignedAgent.escalationRulesJson)
@@ -372,13 +498,24 @@ function toConversationThread(record: ThreadConversationRecord): ConversationThr
     participantSummary: formatParticipantSummary(record.platform, record.participants),
     subject: record.subject,
     conversationState: record.state,
+    integrationStatus: record.integration.status,
+    integrationLabel:
+      record.integration.displayName ??
+      (record.platform === "EMAIL" ? "Gmail" : "Slack"),
     lastActivityAt: buildLastActivityAt(record),
     assignedAgentLabel: buildAssignedAgentLabel(record),
     assignedAgent: record.assignedAgent?.isActive ? record.assignedAgent : null,
     enabledTriggerTypes,
     hasConfiguredTriggerRules,
     participants: record.participants,
-    messages: record.messages.map(toThreadMessageRow),
+    messages: record.messages.map((message, index) =>
+      toThreadMessageRow(
+        message,
+        runtimeJobsByMessageId.get(message.id) ?? null,
+        record.messages[index - 1] ?? null,
+        record.integration.status,
+      ),
+    ),
     recentSendFailure: resolveRecentSendFailure(record),
   };
 }
@@ -403,6 +540,12 @@ export async function getCurrentWorkspaceConversationThread(
       lastMessageAt: true,
       createdAt: true,
       platformMetadataJson: true,
+      integration: {
+        select: {
+          status: true,
+          displayName: true,
+        },
+      },
       participants: {
         select: {
           id: true,
@@ -468,13 +611,66 @@ export async function getCurrentWorkspaceConversationThread(
             },
             orderBy: [{ createdAt: "asc" }],
           },
+          approvalRequests: {
+            select: {
+              id: true,
+              status: true,
+              editedContent: true,
+            },
+            orderBy: [{ createdAt: "desc" }],
+            take: 1,
+          },
         },
         orderBy: [{ sentAt: "asc" }, { receivedAt: "asc" }, { createdAt: "asc" }],
       },
     },
   });
 
-  return conversation
-    ? toConversationThread(conversation as ThreadConversationRecord)
-    : null;
+  if (!conversation) {
+    return null;
+  }
+
+  const typedConversation = conversation as ThreadConversationRecord;
+  const outboundMessageIds = typedConversation.messages
+    .filter((message) => message.direction === "OUTBOUND")
+    .map((message) => message.id)
+    .slice(-100);
+  const runtimeJobs = outboundMessageIds.length
+    ? await prisma.runtimeJob.findMany({
+        where: {
+          workspaceId: authContext.workspaceId,
+          queueName: "outbound-send",
+          jobType: "outbound.send_message",
+          OR: outboundMessageIds.map((messageId) => ({
+            payloadJson: {
+              path: ["messageId"],
+              equals: messageId,
+            },
+          })),
+        },
+        select: {
+          id: true,
+          status: true,
+          payloadJson: true,
+          attemptsMade: true,
+          maxAttempts: true,
+          failedAt: true,
+          deadLetteredAt: true,
+          lastErrorJson: true,
+        },
+        orderBy: [{ queuedAt: "desc" }],
+        take: 100,
+      })
+    : [];
+  const runtimeJobsByMessageId = new Map<string, RuntimeJobForMessage>();
+
+  for (const runtimeJob of runtimeJobs as RuntimeJobForMessage[]) {
+    const messageId = readRuntimeJobMessageId(runtimeJob.payloadJson);
+
+    if (messageId && !runtimeJobsByMessageId.has(messageId)) {
+      runtimeJobsByMessageId.set(messageId, runtimeJob);
+    }
+  }
+
+  return toConversationThread(typedConversation, runtimeJobsByMessageId);
 }

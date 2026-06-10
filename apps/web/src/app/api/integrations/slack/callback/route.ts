@@ -252,6 +252,56 @@ export async function GET(request: Request) {
       },
     });
     const reconnect = Boolean(existingIntegration);
+    const supersededIntegrations = await prisma.integration.findMany({
+      where: {
+        workspaceId: workspace.id,
+        platform: "SLACK",
+        deletedAt: null,
+        status: {
+          not: "DISCONNECTED",
+        },
+        id: existingIntegration
+          ? {
+              not: existingIntegration.id,
+            }
+          : undefined,
+      },
+      select: {
+        id: true,
+      },
+    });
+    const supersededIntegrationIds = supersededIntegrations.map(
+      (integration) => integration.id,
+    );
+
+    if (supersededIntegrationIds.length > 0) {
+      await prisma.$transaction([
+        prisma.integration.updateMany({
+          where: {
+            id: {
+              in: supersededIntegrationIds,
+            },
+            workspaceId: workspace.id,
+          },
+          data: {
+            status: "DISCONNECTED",
+            deletedAt: new Date(),
+          },
+        }),
+        prisma.connectorSecret.updateMany({
+          where: {
+            workspaceId: workspace.id,
+            integrationId: {
+              in: supersededIntegrationIds,
+            },
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: new Date(),
+          },
+        }),
+      ]);
+    }
 
     const integration = existingIntegration
       ? existingIntegration

@@ -404,3 +404,165 @@ export async function runConversationAgentAction(formData: FormData) {
     );
   }
 }
+
+export async function retryFailedOutboundMessageAction(formData: FormData) {
+  const authContext = await requirePermission(PERMISSIONS.SEND_MESSAGES);
+  const messageId = String(formData.get("messageId") ?? "").trim();
+
+  if (!messageId) {
+    redirect("/");
+  }
+
+  const prisma = getPrisma();
+  const message = await prisma.message.findFirst({
+    where: {
+      id: messageId,
+      workspaceId: authContext.workspaceId,
+      deletedAt: null,
+      direction: "OUTBOUND",
+      status: "FAILED",
+    },
+    select: {
+      id: true,
+      workspaceId: true,
+      conversationId: true,
+      platform: true,
+      senderType: true,
+      platformMetadataJson: true,
+      conversation: {
+        select: {
+          id: true,
+          workspaceId: true,
+          integrationId: true,
+          platform: true,
+          deletedAt: true,
+          integration: {
+            select: {
+              id: true,
+              status: true,
+            },
+          },
+        },
+      },
+      approvalRequests: {
+        select: {
+          id: true,
+          status: true,
+        },
+        orderBy: [{ createdAt: "desc" }],
+        take: 1,
+      },
+    },
+  });
+
+  if (!message || message.conversation.deletedAt) {
+    redirect("/");
+  }
+
+  if (message.conversation.integration.status !== "CONNECTED") {
+    redirect(
+      buildThreadRedirect(message.conversationId, {
+        reply: "error",
+        message: "Reconnect this integration before retrying the send.",
+      }),
+    );
+  }
+
+  const approvalRequest = message.approvalRequests[0] ?? null;
+  const sendSource = approvalRequest ? "approval" : "manual";
+
+  if (message.senderType === "AGENT" && approvalRequest?.status !== "APPROVED") {
+    redirect(
+      buildThreadRedirect(message.conversationId, {
+        reply: "error",
+        message: "AI drafts can only be retried after human approval.",
+      }),
+    );
+  }
+
+  try {
+    assertRateLimit({
+      key: `retry-send:${authContext.userId}:${message.id}`,
+      limit: 6,
+      windowMs: 5 * 60_000,
+    });
+
+    const retryNonce = `retry-${Date.now()}`;
+
+    await prisma.message.updateMany({
+      where: {
+        id: message.id,
+        workspaceId: authContext.workspaceId,
+        status: "FAILED",
+      },
+      data: {
+        status: "QUEUED",
+        platformMetadataJson: {
+          ...(typeof message.platformMetadataJson === "object" &&
+          message.platformMetadataJson !== null &&
+          !Array.isArray(message.platformMetadataJson)
+            ? message.platformMetadataJson
+            : {}),
+          retryQueuedAt: new Date().toISOString(),
+          retryQueuedByUserId: authContext.userId,
+        } as never,
+      },
+    });
+
+    await enqueueRuntimeJob({
+      queueName: WORKER_QUEUE_NAMES.OUTBOUND_SEND,
+      jobType: WORKER_JOB_TYPES.OUTBOUND_SEND_MESSAGE,
+      workspaceId: authContext.workspaceId,
+      payload: {
+        workspaceId: authContext.workspaceId,
+        conversationId: message.conversationId,
+        messageId: message.id,
+        integrationId: message.conversation.integrationId,
+        platform: message.platform,
+        requestedByUserId: authContext.userId,
+        sendSource,
+        approvalRequestId: approvalRequest?.id ?? null,
+        requestedAt: new Date().toISOString(),
+      },
+      dedupeKey: [
+        "outbound-send",
+        authContext.workspaceId,
+        message.id,
+        sendSource,
+        approvalRequest?.id ?? "manual",
+        retryNonce,
+      ].join(":"),
+      retryPolicy: {
+        maxAttempts: 3,
+      },
+    });
+
+    redirect(
+      buildThreadRedirect(message.conversationId, {
+        reply: "retrying",
+      }),
+    );
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+
+    await prisma.message.updateMany({
+      where: {
+        id: message.id,
+        workspaceId: authContext.workspaceId,
+        status: "QUEUED",
+      },
+      data: {
+        status: "FAILED",
+      },
+    });
+
+    redirect(
+      buildThreadRedirect(message.conversationId, {
+        reply: "error",
+        message: sanitizeUiErrorMessage(error) || "Unable to queue retry.",
+      }),
+    );
+  }
+}

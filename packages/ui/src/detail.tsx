@@ -207,6 +207,7 @@ export type Message = {
   attachments?: ReactNode;
   metadata?: ReactNode;
   failed?: boolean;
+  groupedWithPrevious?: boolean;
 };
 
 export type MessageListProps = ComponentPropsWithoutRef<"div"> & {
@@ -244,6 +245,7 @@ export function MessageItem({
   attachments,
   metadata,
   failed,
+  groupedWithPrevious,
   className,
   ...props
 }: MessageItemProps) {
@@ -260,7 +262,12 @@ export function MessageItem({
       className={cn("rounded-lg border border-l-4 border-slate-200 bg-white p-4", marker, className)}
       {...props}
     >
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+      <div
+        className={cn(
+          "flex flex-col gap-2 md:flex-row md:items-start md:justify-between",
+          groupedWithPrevious && "sr-only",
+        )}
+      >
         <div>
           <p className="text-sm font-semibold text-slate-950">{sender}</p>
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
@@ -270,7 +277,7 @@ export function MessageItem({
         </div>
         <p className="text-xs text-slate-500">{timestamp}</p>
       </div>
-      <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-800">{body}</div>
+      <div className={cn("whitespace-pre-wrap text-sm leading-6 text-slate-800", groupedWithPrevious ? "mt-0" : "mt-3")}>{body}</div>
       {attachments ? <div className="mt-3">{attachments}</div> : null}
       {metadata ? <div className="mt-3 text-xs text-slate-500">{metadata}</div> : null}
     </article>

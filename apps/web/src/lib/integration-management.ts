@@ -185,7 +185,7 @@ function readStatusSummary(record: IntegrationRecord) {
   }
 
   if (record.status === "DISCONNECTED") {
-    return "Integration has been disconnected.";
+    return "Integration has been disconnected. Historical conversations remain available. V1 allows one active integration per platform.";
   }
 
   const metadata = isJsonObject(record.platformMetadataJson)
@@ -248,7 +248,7 @@ function readStatusSummary(record: IntegrationRecord) {
     return watchSummary;
   }
 
-  return null;
+  return "V1 allows one active integration per platform in each workspace.";
 }
 
 function toManagedIntegration(
@@ -347,7 +347,18 @@ export async function getCurrentWorkspaceManagedIntegrations() {
     healthSummaries.map((health) => [health.provider, health] as const),
   );
 
-  for (const integration of integrations) {
+  const sortedIntegrations = integrations.slice().sort((left, right) => {
+    const leftActive = left.deletedAt === null && left.status !== "DISCONNECTED";
+    const rightActive = right.deletedAt === null && right.status !== "DISCONNECTED";
+
+    if (leftActive !== rightActive) {
+      return leftActive ? -1 : 1;
+    }
+
+    return 0;
+  });
+
+  for (const integration of sortedIntegrations) {
     const provider = readProvider(integration.platformMetadataJson);
 
     if (

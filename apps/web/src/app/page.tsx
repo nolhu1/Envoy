@@ -4,23 +4,26 @@ import {
   Checkbox,
   FilterBar,
   FilterField,
-  Input,
   PageContainer,
   PageHeader,
   QueueContainer,
   QueueEmpty,
+  QueuePagination,
   QueueTable,
   Select,
   StatusBadge,
 } from "@envoy/ui";
 
+import { InboxSearchInput } from "@/app/inbox-search-input";
 import { ProductShell } from "@/components/product-shell";
 import { requireAppAuthContext } from "@/lib/app-auth";
 import {
   getCurrentWorkspaceInboxAssigneeOptions,
-  getCurrentWorkspaceInboxRowsWithFilters,
+  getCurrentWorkspaceInboxPageWithFilters,
   readInboxFilters,
+  readInboxPagination,
   type InboxAssigneeOption,
+  type InboxPage,
   type InboxRow,
 } from "@/lib/inbox";
 
@@ -102,15 +105,45 @@ function buildActiveFilters(
   return activeFilters;
 }
 
+function buildPageHref(
+  searchParams: Record<string, string | string[] | undefined> | undefined,
+  page: number,
+) {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    if (key === "page") {
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        params.append(key, item);
+      }
+    } else if (value != null && value !== "") {
+      params.set(key, value);
+    }
+  }
+
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
+}
+
 export default async function HomePage({ searchParams }: HomePageProps) {
   await requireAppAuthContext();
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const filters = readInboxFilters(resolvedSearchParams);
-  const [inboxRows, assigneeOptions]: [InboxRow[], InboxAssigneeOption[]] =
+  const pagination = readInboxPagination(resolvedSearchParams);
+  const [inboxPage, assigneeOptions]: [InboxPage, InboxAssigneeOption[]] =
     await Promise.all([
-      getCurrentWorkspaceInboxRowsWithFilters(filters),
+      getCurrentWorkspaceInboxPageWithFilters(filters, pagination),
       getCurrentWorkspaceInboxAssigneeOptions(),
     ]);
+  const inboxRows = inboxPage.rows;
   const activeFilters = buildActiveFilters(filters, assigneeOptions);
   const filtered = hasActiveFilters(filters);
 
@@ -134,13 +167,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           filters={
             <FilterBar resetHref="/" mobileMode="drawer">
               <FilterField label="Search">
-                <Input
-                  type="search"
-                  name="q"
+                <InboxSearchInput
+                  key={filters.query}
                   defaultValue={filters.query}
-                  placeholder="Subject, participant, or message text"
                 />
               </FilterField>
+              <input type="hidden" name="page" value="1" />
               <FilterField label="Platform">
                 <Select
                   name="platform"
@@ -244,6 +276,21 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                       {row.hasSendFailure ? (
                         <StatusBadge domain="message" status="FAILED" />
                       ) : null}
+                      {row.hasQueuedSend ? (
+                        <StatusBadge domain="message" status="QUEUED" />
+                      ) : null}
+                      {row.hasPendingApproval ? (
+                        <StatusBadge domain="approval" status="PENDING" />
+                      ) : null}
+                      {row.syncInProgress ? (
+                        <StatusBadge domain="integration" status="SYNC_IN_PROGRESS" />
+                      ) : null}
+                      {row.integrationNeedsAttention ? (
+                        <StatusBadge
+                          domain="integration"
+                          status={row.integrationStatus}
+                        />
+                      ) : null}
                     </div>
                     <p className="mt-2 truncate font-semibold text-slate-950">
                       {row.title}
@@ -278,6 +325,27 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 cell: (row: InboxRow) => formatTimestamp(row.lastActivityAt),
               },
             ]}
+          />
+          <QueuePagination
+            className="pt-4"
+            page={inboxPage.page}
+            pageSize={inboxPage.pageSize}
+            totalCount={inboxPage.totalCount}
+            previousHref={
+              inboxPage.hasPreviousPage
+                ? buildPageHref(resolvedSearchParams, inboxPage.page - 1)
+                : undefined
+            }
+            nextHref={
+              inboxPage.hasNextPage
+                ? buildPageHref(resolvedSearchParams, inboxPage.page + 1)
+                : undefined
+            }
+            resultLabel={
+              inboxPage.totalCount === 0
+                ? "No conversations"
+                : `Page ${inboxPage.page} of ${inboxPage.totalPages} - ${inboxPage.totalCount} conversations`
+            }
           />
         </QueueContainer>
       </PageContainer>
