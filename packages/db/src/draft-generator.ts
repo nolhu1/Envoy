@@ -48,6 +48,10 @@ export type DraftGenerationResult = {
   suggestedWorkflowStateChange: AgentSuggestedWorkflowStateChange | null;
   provider: DraftGenerationProvider;
   model: string;
+  promptVersion: string;
+  generatorVersion: string;
+  temperature: number;
+  maxOutputTokens: number;
 };
 
 export function assertDraftGenerationAllowed(input: {

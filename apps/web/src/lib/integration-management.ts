@@ -9,7 +9,7 @@ import {
 } from "@/lib/connector-health";
 import { sanitizeUiErrorMessage } from "@/lib/security";
 
-type IntegrationPlatform = "EMAIL" | "SLACK";
+type IntegrationPlatform = "EMAIL";
 type IntegrationStatus =
   | "PENDING"
   | "CONNECTED"
@@ -29,7 +29,7 @@ type IntegrationRecord = {
 };
 
 export type ManagedIntegration = {
-  provider: "gmail" | "slack";
+  provider: "gmail";
   platform: IntegrationPlatform;
   integrationId: string | null;
   displayName: string;
@@ -38,6 +38,7 @@ export type ManagedIntegration = {
   lastSyncedAt: Date | null;
   diagnosticsSummary: string | null;
   statusSummary: string | null;
+  liveSyncEnabled: boolean;
   isConnected: boolean;
   requiresReconnect: boolean;
   health: ConnectorHealthSummary;
@@ -52,9 +53,7 @@ function readProvider(value: unknown) {
     return null;
   }
 
-  return value.provider === "gmail" || value.provider === "slack"
-    ? value.provider
-    : null;
+  return value.provider === "gmail" ? value.provider : null;
 }
 
 function readCheckpointNumber(checkpoint: Record<string, unknown>, key: string) {
@@ -72,6 +71,15 @@ function readCheckpointString(checkpoint: Record<string, unknown>, key: string) 
 }
 
 function readGmailWatchSummary(metadata: Record<string, unknown> | null) {
+  const liveSyncEnabled =
+    typeof metadata?.gmailLiveSyncEnabled === "boolean"
+      ? metadata.gmailLiveSyncEnabled
+      : true;
+
+  if (!liveSyncEnabled) {
+    return "Gmail live sync is off";
+  }
+
   const gmailWatch = isJsonObject(metadata?.gmailWatch)
     ? metadata.gmailWatch
     : null;
@@ -149,20 +157,10 @@ function readDiagnosticsSummary(record: IntegrationRecord) {
     return sanitizeUiErrorMessage(gmailWatch.lastError.message);
   }
 
-  if (typeof metadata.slackTeamName === "string" && metadata.slackTeamName) {
-    return sanitizeUiErrorMessage(metadata.slackTeamName);
-  }
-
-  if (typeof metadata.slackWorkspaceUrl === "string" && metadata.slackWorkspaceUrl) {
-    return sanitizeUiErrorMessage(metadata.slackWorkspaceUrl);
-  }
-
   const checkpoint =
     isJsonObject(metadata.gmailSyncCheckpoint)
       ? metadata.gmailSyncCheckpoint
-      : isJsonObject(metadata.slackSyncCheckpoint)
-        ? metadata.slackSyncCheckpoint
-        : null;
+      : null;
 
   if (
     checkpoint &&
@@ -177,7 +175,7 @@ function readDiagnosticsSummary(record: IntegrationRecord) {
 
 function readStatusSummary(record: IntegrationRecord) {
   if (record.status === "ERROR") {
-    return "Integration needs reconnect or resync.";
+    return "The last sync attempt failed. Reconnect only if auth is invalid; otherwise you can retry sync.";
   }
 
   if (record.status === "SYNC_IN_PROGRESS") {
@@ -185,7 +183,7 @@ function readStatusSummary(record: IntegrationRecord) {
   }
 
   if (record.status === "DISCONNECTED") {
-    return "Integration has been disconnected. Historical conversations remain available. V1 allows one active integration per platform.";
+    return "Gmail has been disconnected. Historical conversations remain available.";
   }
 
   const metadata = isJsonObject(record.platformMetadataJson)
@@ -194,9 +192,7 @@ function readStatusSummary(record: IntegrationRecord) {
   const checkpoint =
     isJsonObject(metadata?.gmailSyncCheckpoint)
       ? metadata.gmailSyncCheckpoint
-      : isJsonObject(metadata?.slackSyncCheckpoint)
-        ? metadata.slackSyncCheckpoint
-        : null;
+      : null;
 
   if (checkpoint && typeof checkpoint.status === "string") {
     const pagesProcessed = readCheckpointNumber(
@@ -206,14 +202,6 @@ function readStatusSummary(record: IntegrationRecord) {
     const threadsProcessed =
       readCheckpointNumber(checkpoint, "totalThreadsProcessed") ??
       readCheckpointNumber(checkpoint, "threadCount");
-    const dmConversationsProcessed = readCheckpointNumber(
-      checkpoint,
-      "totalDmConversationsProcessed",
-    );
-    const canonicalConversationsProcessed = readCheckpointNumber(
-      checkpoint,
-      "totalCanonicalConversationsProcessed",
-    );
     const messagesInserted =
       readCheckpointNumber(checkpoint, "totalMessagesInserted") ??
       readCheckpointNumber(checkpoint, "messageCount");
@@ -225,12 +213,6 @@ function readStatusSummary(record: IntegrationRecord) {
     const parts = [
       `Last checkpoint: ${checkpoint.status}`,
       pagesProcessed == null ? null : `pages ${pagesProcessed}`,
-      dmConversationsProcessed == null
-        ? null
-        : `DMs ${dmConversationsProcessed}`,
-      canonicalConversationsProcessed == null
-        ? null
-        : `canonical conversations ${canonicalConversationsProcessed}`,
       threadsProcessed == null ? null : `threads ${threadsProcessed}`,
       messagesInserted == null ? null : `messages ${messagesInserted}`,
       hasMore ? "more pages remain" : "no more pages",
@@ -248,7 +230,7 @@ function readStatusSummary(record: IntegrationRecord) {
     return watchSummary;
   }
 
-  return "V1 allows one active integration per platform in each workspace.";
+  return "One active Gmail integration is supported in each workspace.";
 }
 
 function toManagedIntegration(
@@ -256,19 +238,20 @@ function toManagedIntegration(
   record: IntegrationRecord | null,
   health: ConnectorHealthSummary,
 ): ManagedIntegration {
-  const provider = platform === "EMAIL" ? "gmail" : "slack";
+  const provider = "gmail";
 
   if (!record) {
     return {
       provider,
       platform,
       integrationId: null,
-      displayName: platform === "EMAIL" ? "Gmail" : "Slack",
+      displayName: "Gmail",
       status: null,
       statusLabel: "Not connected",
       lastSyncedAt: null,
       diagnosticsSummary: null,
       statusSummary: "Not connected.",
+      liveSyncEnabled: true,
       isConnected: false,
       requiresReconnect: false,
       health,
@@ -282,12 +265,13 @@ function toManagedIntegration(
     displayName:
       record.displayName ||
       record.externalAccountId ||
-      (platform === "EMAIL" ? "Gmail" : "Slack"),
+      "Gmail",
     status: record.status,
     statusLabel: record.status,
     lastSyncedAt: record.lastSyncedAt,
     diagnosticsSummary: readDiagnosticsSummary(record),
     statusSummary: readStatusSummary(record),
+    liveSyncEnabled: health.liveSyncEnabled,
     isConnected: record.status !== "DISCONNECTED",
     requiresReconnect:
       record.status === "ERROR" || record.status === "DISCONNECTED",
@@ -316,7 +300,7 @@ export async function getCurrentWorkspaceManagedIntegrations() {
           },
         ],
         platform: {
-          in: ["EMAIL", "SLACK"],
+          in: ["EMAIL"],
         },
       },
       select: {
@@ -359,12 +343,13 @@ export async function getCurrentWorkspaceManagedIntegrations() {
   });
 
   for (const integration of sortedIntegrations) {
+    if (integration.platform !== "EMAIL") {
+      continue;
+    }
+
     const provider = readProvider(integration.platformMetadataJson);
 
-    if (
-      (integration.platform === "EMAIL" && provider !== "gmail") ||
-      (integration.platform === "SLACK" && provider !== "slack")
-    ) {
+    if (provider !== "gmail") {
       continue;
     }
 
@@ -379,12 +364,6 @@ export async function getCurrentWorkspaceManagedIntegrations() {
       byPlatform.get("EMAIL") ?? null,
       healthByIntegrationId.get(byPlatform.get("EMAIL")?.id ?? "") ??
         healthByProvider.get("gmail")!,
-    ),
-    toManagedIntegration(
-      "SLACK",
-      byPlatform.get("SLACK") ?? null,
-      healthByIntegrationId.get(byPlatform.get("SLACK")?.id ?? "") ??
-        healthByProvider.get("slack")!,
     ),
   ];
 }

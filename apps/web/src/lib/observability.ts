@@ -30,7 +30,7 @@ type WorkerMetricsSnapshot = {
 
 type IntegrationFailureSummary = {
   integrationId: string;
-  platform: "EMAIL" | "SLACK";
+  platform: "EMAIL";
   status: string;
   displayName: string | null;
   lastSyncedAt: Date | null;
@@ -103,7 +103,7 @@ function readRunId(metadataJson: unknown) {
 function toFailureSummary(
   integration: {
     id: string;
-    platform: "EMAIL" | "SLACK";
+    platform: "EMAIL";
     status: string;
     displayName: string | null;
     lastSyncedAt: Date | null;
@@ -116,9 +116,7 @@ function toFailureSummary(
   const checkpoint =
     isObject(metadata?.gmailSyncCheckpoint)
       ? metadata.gmailSyncCheckpoint
-      : isObject(metadata?.slackSyncCheckpoint)
-        ? metadata.slackSyncCheckpoint
-        : null;
+      : null;
   const diagnosticsMessage =
     typeof metadata?.connectError === "string" && metadata.connectError
       ? metadata.connectError
@@ -128,7 +126,7 @@ function toFailureSummary(
 
   return {
     integrationId: integration.id,
-    platform: integration.platform,
+    platform: "EMAIL",
     status: integration.status,
     displayName: integration.displayName,
     lastSyncedAt: integration.lastSyncedAt,
@@ -227,6 +225,7 @@ export async function getWorkspaceOperationalSnapshot(input: {
     prisma.integration.findMany({
       where: {
         workspaceId: input.workspaceId,
+        platform: "EMAIL",
         deletedAt: null,
         status: "ERROR",
       },

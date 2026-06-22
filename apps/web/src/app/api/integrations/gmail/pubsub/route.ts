@@ -3,6 +3,7 @@ import { getPrisma } from "@envoy/db";
 import { NextResponse } from "next/server";
 
 import { ingestGmailPushNotification } from "@/lib/gmail-ingestion";
+import { readGmailLiveSyncEnabled } from "@/lib/gmail-sync-checkpoint";
 import {
   checkRateLimit,
   createRateLimitResponse,
@@ -63,6 +64,7 @@ type JwtPayload = {
 type GmailIntegrationRouteRecord = {
   id: string;
   workspaceId: string;
+  platformMetadataJson: unknown;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -302,6 +304,7 @@ async function findConnectedGmailIntegration(emailAddress: string) {
     select: {
       id: true,
       workspaceId: true,
+      platformMetadataJson: true,
     },
     take: 2,
   });
@@ -433,6 +436,25 @@ export async function POST(request: Request) {
         ok: true,
         ignored: true,
         reason: reason ?? "integration_not_found",
+      },
+      {
+        status: 202,
+      },
+    );
+  }
+
+  if (!readGmailLiveSyncEnabled(integration.platformMetadataJson)) {
+    logIgnoredNotification({
+      emailAddress: data.emailAddress,
+      messageId: pubSubMessageId,
+      reason: "live_sync_disabled",
+    });
+
+    return jsonResponse(
+      {
+        ok: true,
+        ignored: true,
+        reason: "live_sync_disabled",
       },
       {
         status: 202,

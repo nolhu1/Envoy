@@ -6,10 +6,10 @@ export const WORKER_JOB_TYPES = {
   MAINTENANCE_RENEW_GMAIL_WATCH: "maintenance.renew_gmail_watch",
   EVENTS_PROCESS_EVENT_PLACEHOLDER: "events.process_event_placeholder",
   SYNC_GMAIL_INTEGRATION: "sync.gmail_integration",
-  SYNC_SLACK_INTEGRATION: "sync.slack_integration",
   OUTBOUND_SEND_MESSAGE: "outbound.send_message",
   AGENT_RUN_FROM_TRIGGER: "agent.run_from_trigger",
   AGENT_RUN_MANUAL: "agent.run_manual",
+  AGENT_EVALUATE_FOLLOW_UPS: "agent.evaluate_follow_ups",
   CONNECTOR_SYNC: "connector_sync",
   CONNECTOR_PROCESS_EVENT: "connector_process_event",
   REMINDER: "reminder",
@@ -23,7 +23,7 @@ export type WorkerJobType =
 export type ConnectorSyncJobPayload = {
   workspaceId: string;
   integrationId: string;
-  platform?: "EMAIL" | "SLACK" | null;
+  platform?: "EMAIL" | null;
   fullResync?: boolean;
   cursor?: string | null;
 };
@@ -86,7 +86,7 @@ export type OutboundSendMessageJobPayload = {
   conversationId: string;
   messageId: string;
   integrationId: string;
-  platform: "EMAIL" | "SLACK";
+  platform: "EMAIL";
   requestedByUserId: string | null;
   sendSource: OutboundSendSource;
   approvalRequestId: string | null;
@@ -96,11 +96,17 @@ export type OutboundSendMessageJobPayload = {
 export type AgentRunFromTriggerJobPayload = {
   workspaceId: string;
   conversationId: string;
-  triggerType: "inbound_message" | "approval_rejected";
-  sourceEventId: string;
+  triggerType: "inbound_message" | "approval_rejected" | "follow_up_due";
+  sourceEventId: string | null;
   sourceMessageId: string | null;
   sourceApprovalRequestId: string | null;
   requestedAt: string;
+};
+
+export type AgentEvaluateFollowUpsJobPayload = {
+  workspaceId: string | null;
+  requestedAt: string;
+  reason: "scheduled" | "manual" | "recovery";
 };
 
 export type AgentRunManualJobPayload = {
@@ -131,10 +137,10 @@ export type WorkerJobPayloadByType = {
     eventId: string;
   };
   "sync.gmail_integration": IntegrationSyncJobPayload;
-  "sync.slack_integration": IntegrationSyncJobPayload;
   "outbound.send_message": OutboundSendMessageJobPayload;
   "agent.run_from_trigger": AgentRunFromTriggerJobPayload;
   "agent.run_manual": AgentRunManualJobPayload;
+  "agent.evaluate_follow_ups": AgentEvaluateFollowUpsJobPayload;
   connector_sync: ConnectorSyncJobPayload;
   connector_process_event: ConnectorProcessEventJobPayload;
   reminder: ReminderJobPayload;

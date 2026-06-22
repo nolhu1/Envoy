@@ -6,13 +6,16 @@ import {
   Input,
   PageContainer,
   PageHeader,
+  Panel,
   QueueContainer,
   QueueTable,
 } from "@envoy/ui";
 
+import { evaluateFollowUpsNowAction } from "@/app/agent-runs/actions";
 import { ProductShell } from "@/components/product-shell";
 import {
   formatAgentRunJobType,
+  getAgentRunMetrics,
   listAgentRunHistory,
   type AgentRunHistoryRow,
 } from "@/lib/agent-run-history";
@@ -57,10 +60,15 @@ export default async function AgentRunsPage({
     triggerType: readSearchParam(params?.triggerType),
     conversationId: readSearchParam(params?.conversationId),
   };
-  const rows = await listAgentRunHistory({
-    workspaceId: authContext.workspaceId,
-    filters,
-  });
+  const [rows, metrics] = await Promise.all([
+    listAgentRunHistory({
+      workspaceId: authContext.workspaceId,
+      filters,
+    }),
+    getAgentRunMetrics({
+      workspaceId: authContext.workspaceId,
+    }),
+  ]);
 
   return (
     <ProductShell activeSection="operator">
@@ -68,7 +76,30 @@ export default async function AgentRunsPage({
         <PageHeader
           title="Agent Runs"
           description="Worker-backed manual and automatic agent draft runs. AI output remains draft-only and approval-gated."
+          actions={
+            <form action={evaluateFollowUpsNowAction}>
+              <button
+                type="submit"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm shadow-slate-950/5 hover:border-slate-400 hover:bg-slate-50"
+              >
+                Evaluate follow-ups
+              </button>
+            </form>
+          }
         />
+
+        <Panel>
+          <div className="grid gap-3 text-sm sm:grid-cols-4">
+            <p><span className="font-medium">Total:</span> {metrics.totalRuns}</p>
+            <p><span className="font-medium">Completed:</span> {metrics.completedRuns}</p>
+            <p><span className="font-medium">Suppressed:</span> {metrics.suppressedRuns}</p>
+            <p><span className="font-medium">Failed:</span> {metrics.failedRuns}</p>
+            <p><span className="font-medium">Escalated:</span> {metrics.escalatedRuns}</p>
+            <p><span className="font-medium">Avg latency:</span> {metrics.averageLatencyMs == null ? "n/a" : `${metrics.averageLatencyMs} ms`}</p>
+            <p><span className="font-medium">Acceptance:</span> {metrics.draftAcceptanceRate == null ? "n/a" : `${Math.round(metrics.draftAcceptanceRate * 100)}%`}</p>
+            <p><span className="font-medium">Revision/rejection:</span> {metrics.rejectionRevisionRate == null ? "n/a" : `${Math.round(metrics.rejectionRevisionRate * 100)}%`}</p>
+          </div>
+        </Panel>
 
         <QueueContainer
           title="Agent runtime history"
@@ -134,6 +165,7 @@ export default async function AgentRunsPage({
                   <div className="text-xs leading-5">
                     <p>Queued {formatDate(row.queuedAt)}</p>
                     <p>Done {formatDate(row.completedAt ?? row.failedAt ?? row.deadLetteredAt)}</p>
+                    <p>Latency {row.latencyMs == null ? "n/a" : `${row.latencyMs} ms`}</p>
                   </div>
                 ),
               },
@@ -144,6 +176,8 @@ export default async function AgentRunsPage({
                   <div className="text-xs leading-5">
                     <p>Draft: {row.draftMessageId ?? "Not recorded"}</p>
                     <p>Approval: {row.approvalRequestId ?? "Not recorded"}</p>
+                    <p>Model: {row.model ?? "Not recorded"}</p>
+                    <p>Prompt: {row.promptVersion ?? "Not recorded"}</p>
                     <p>{row.escalationOrSuppressionReason ?? row.errorSummary ?? "No issue recorded"}</p>
                   </div>
                 ),

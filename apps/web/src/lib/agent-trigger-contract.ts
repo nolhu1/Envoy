@@ -13,9 +13,9 @@ export type AutomaticAgentTriggerEventContext = {
   conversationId: string;
   triggerType: AgentTriggerType;
   trigger: AgentTriggerContext;
-  sourceEventId: string;
-  sourceEventType: string;
-  sourceEventSource: string;
+  sourceEventId: string | null;
+  sourceEventType: string | null;
+  sourceEventSource: string | null;
 };
 
 export type AutomaticAgentTriggerParseResult =
@@ -39,13 +39,21 @@ export function buildAutomaticTriggerIdempotencyKey(
           context.conversationId,
           context.trigger.sourceMessageId ?? "none",
         ].join(":")
-      : [
-          "agent",
-          "approval_rejected",
-          context.workspaceId,
-          context.conversationId,
-          context.trigger.sourceApprovalRequestId ?? "none",
-        ].join(":");
+      : context.triggerType === AGENT_TRIGGER_TYPES.APPROVAL_REJECTED
+        ? [
+            "agent",
+            "approval_rejected",
+            context.workspaceId,
+            context.conversationId,
+            context.trigger.sourceApprovalRequestId ?? "none",
+          ].join(":")
+        : [
+            "agent",
+            "follow_up_due",
+            context.workspaceId,
+            context.conversationId,
+            context.trigger.metadata?.dedupeBucket ?? "due",
+          ].join(":");
 
   return {
     key,
@@ -54,7 +62,7 @@ export function buildAutomaticTriggerIdempotencyKey(
     operationType: context.triggerType,
     resourceType: "conversation",
     resourceId: context.conversationId,
-    externalEventId: context.sourceEventId,
+    externalEventId: context.sourceEventId ?? key,
   };
 }
 
@@ -75,12 +83,22 @@ export function buildAgentTriggerRuntimeJobDedupeKey(input: {
     ].join(":");
   }
 
+  if (input.triggerType === AGENT_TRIGGER_TYPES.APPROVAL_REJECTED) {
+    return [
+      "agent",
+      "approval_rejected",
+      input.workspaceId,
+      input.conversationId,
+      input.sourceApprovalRequestId ?? "none",
+    ].join(":");
+  }
+
   return [
     "agent",
-    "approval_rejected",
+    "follow_up_due",
     input.workspaceId,
     input.conversationId,
-    input.sourceApprovalRequestId ?? "none",
+    "due",
   ].join(":");
 }
 

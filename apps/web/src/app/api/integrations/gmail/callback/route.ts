@@ -109,6 +109,7 @@ function clearRecoverableGmailMetadata(input: {
   return {
     ...previous,
     ...input.nextMetadata,
+    gmailLiveSyncEnabled: true,
     connectError: null,
     lastFailureCategory: null,
     lastReconnectAt: input.reconnect ? now : null,

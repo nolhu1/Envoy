@@ -93,6 +93,20 @@ export default async function AgentRunDetailPage({
                   : "Not recorded",
               },
               { label: "Escalation/suppression", value: detail.escalationOrSuppressionReason ?? "Not recorded" },
+              {
+                label: "Latency",
+                value: detail.latencyMs == null ? "Not recorded" : `${detail.latencyMs} ms`,
+              },
+              { label: "Provider", value: detail.provider ?? "Not recorded" },
+              { label: "Model", value: detail.model ?? "Not recorded" },
+              {
+                label: "Prompt version",
+                value: detail.promptVersion ?? "Not recorded",
+              },
+              {
+                label: "Error class",
+                value: detail.errorClass ?? "Not recorded",
+              },
               { label: "Error", value: detail.errorSummary ?? "None recorded" },
             ]}
           />

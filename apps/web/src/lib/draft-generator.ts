@@ -40,6 +40,9 @@ type OpenAIDraftRawOutput = {
   } | null;
 };
 
+export const ENVOY_AGENT_PROMPT_VERSION = "agent-draft-v1";
+export const ENVOY_AGENT_GENERATOR_VERSION = "openai-responses-v1";
+
 const OPENAI_DRAFT_PROVIDER: DraftGeneratorProviderAdapter = {
   provider: DRAFT_GENERATION_PROVIDERS.OPENAI,
   async generate(input, config) {
@@ -337,6 +340,10 @@ function normalizeGenerationResult(input: {
     suggestedWorkflowStateChange,
     provider: input.config.provider,
     model: input.providerModel,
+    promptVersion: ENVOY_AGENT_PROMPT_VERSION,
+    generatorVersion: ENVOY_AGENT_GENERATOR_VERSION,
+    temperature: input.config.temperature,
+    maxOutputTokens: input.config.maxOutputTokens,
   };
 }
 

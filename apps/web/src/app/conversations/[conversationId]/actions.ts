@@ -58,6 +58,7 @@ export async function sendManualReplyAction(formData: FormData) {
     where: {
       id: conversationId,
       workspaceId: authContext.workspaceId,
+      platform: "EMAIL",
       deletedAt: null,
     },
     select: {
@@ -90,7 +91,7 @@ export async function sendManualReplyAction(formData: FormData) {
     );
   }
 
-  if (conversation.platform !== "EMAIL" && conversation.platform !== "SLACK") {
+  if (conversation.platform !== "EMAIL") {
     redirect(buildThreadRedirect(conversation.id, {
       reply: "error",
       message: "Manual reply is not supported for this platform.",
@@ -103,7 +104,7 @@ export async function sendManualReplyAction(formData: FormData) {
       data: {
         workspaceId: authContext.workspaceId,
         conversationId: conversation.id,
-        platform: conversation.platform,
+        platform: "EMAIL",
         senderType: "USER",
         direction: "OUTBOUND",
         bodyText,
@@ -128,7 +129,7 @@ export async function sendManualReplyAction(formData: FormData) {
         conversationId: conversation.id,
         messageId: message.id,
         integrationId: conversation.integrationId,
-        platform: conversation.platform,
+        platform: "EMAIL",
         requestedByUserId: authContext.userId,
         sendSource: "manual",
         approvalRequestId: null,
@@ -518,7 +519,7 @@ export async function retryFailedOutboundMessageAction(formData: FormData) {
         conversationId: message.conversationId,
         messageId: message.id,
         integrationId: message.conversation.integrationId,
-        platform: message.platform,
+        platform: "EMAIL",
         requestedByUserId: authContext.userId,
         sendSource,
         approvalRequestId: approvalRequest?.id ?? null,

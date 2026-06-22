@@ -148,7 +148,7 @@ export default async function ApprovalDetailPage({
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge domain="approval" status={detail.status} />
           <Badge variant="platform">
-            {detail.conversation.platform === "SLACK" ? "Slack" : "Gmail"}
+            Gmail
           </Badge>
         </div>
       }
@@ -197,7 +197,7 @@ export default async function ApprovalDetailPage({
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge domain="approval" status={detail.status} />
         <Badge variant="platform">
-          {detail.conversation.platform === "SLACK" ? "Slack" : "Gmail"}
+          Gmail
         </Badge>
       </div>
       <h2 className="mt-4 text-lg font-semibold text-slate-950">

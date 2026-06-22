@@ -57,7 +57,6 @@ export default async function ApprovalHistoryPage({
     status: readSearchParam(params?.status),
     reviewerId: readSearchParam(params?.reviewerId),
     conversationId: readSearchParam(params?.conversationId),
-    platform: readSearchParam(params?.platform),
     from: readSearchParam(params?.from),
     to: readSearchParam(params?.to),
   };
@@ -88,9 +87,6 @@ export default async function ApprovalHistoryPage({
               <FilterField label="Conversation">
                 <Input name="conversationId" defaultValue={filters.conversationId ?? ""} />
               </FilterField>
-              <FilterField label="Platform">
-                <Input name="platform" defaultValue={filters.platform ?? ""} placeholder="EMAIL or SLACK" />
-              </FilterField>
               <FilterField label="From">
                 <Input name="from" type="date" defaultValue={filters.from ?? ""} />
               </FilterField>
@@ -119,7 +115,7 @@ export default async function ApprovalHistoryPage({
                 cell: (row) => (
                   <div className="space-y-1">
                     <StatusBadge domain="approval" status={row.status} />
-                    <Badge variant="platform">{row.platform}</Badge>
+                    <Badge variant="platform">Gmail</Badge>
                   </div>
                 ),
               },

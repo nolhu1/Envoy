@@ -5,6 +5,7 @@ import {
   evaluateAgentEscalation,
   persistAgentEscalationDecision,
   planAgentResponse,
+  upsertStructuredMemoryFacts,
   type AgentEscalationDecision,
   type AgentConversationContext,
   type AgentResponsePlan,
@@ -28,6 +29,34 @@ import {
   logAgentRunEvent,
   toSafeErrorSummary,
 } from "./agent-run-logging";
+
+const STRUCTURED_MEMORY_WRITE_CONFIDENCE_THRESHOLD = 0.7;
+const MAX_STRUCTURED_MEMORY_VALUE_LENGTH = 500;
+
+function classifyAgentRun(input: {
+  planner: AgentResponsePlan;
+  escalation?: AgentEscalationDecision | null;
+}) {
+  const reason = input.escalation?.escalationReasonCode;
+
+  if (reason === "unsafe_content" || reason === "policy_violation") {
+    return "unsafe_or_policy_blocked";
+  }
+
+  if (reason === "low_confidence" || input.planner.missingInformationQuestions?.length) {
+    return "insufficient_context";
+  }
+
+  if (reason === "unsupported_request") {
+    return "unsupported_request";
+  }
+
+  if (input.planner.actionType !== AGENT_PLANNER_ACTION_TYPES.DRAFT_REPLY) {
+    return "needs_human";
+  }
+
+  return "normal_draft";
+}
 
 export type GeneratedDraftApprovalFlowResult = {
   status: "draft_created";
@@ -100,6 +129,12 @@ export async function createApprovalFromGeneratedDraftResult(input: {
         rationaleSummary: input.generation.rationaleSummary,
         extractedStructuredData: input.generation.extractedStructuredData,
         confidenceScore: input.generation.confidenceScore,
+        provider: input.generation.provider,
+        model: input.generation.model,
+        promptVersion: input.generation.promptVersion,
+        generatorVersion: input.generation.generatorVersion,
+        temperature: input.generation.temperature,
+        maxOutputTokens: input.generation.maxOutputTokens,
         suggestedWorkflowStateChange:
           input.generation.suggestedWorkflowStateChange ?? null,
       },
@@ -108,6 +143,57 @@ export async function createApprovalFromGeneratedDraftResult(input: {
       },
     },
   });
+}
+
+async function persistStructuredFactsFromGeneration(input: {
+  workspaceId: string;
+  runId: string;
+  context: AgentConversationContext;
+  generation: DraftGenerationResult;
+  sourceMessageId?: string | null;
+}) {
+  const safeFacts = input.generation.extractedStructuredData
+    .filter((fact) => {
+      const confidence = fact.confidence ?? 0;
+      return (
+        confidence >= STRUCTURED_MEMORY_WRITE_CONFIDENCE_THRESHOLD &&
+        fact.valueText.trim().length > 0 &&
+        fact.valueText.trim().length <= MAX_STRUCTURED_MEMORY_VALUE_LENGTH
+      );
+    })
+    .map((fact) => ({
+      key: fact.key,
+      valueText: fact.valueText.trim(),
+      confidence: fact.confidence,
+      sourceMessageId: input.sourceMessageId ?? null,
+    }));
+
+  if (safeFacts.length === 0) {
+    return [];
+  }
+
+  const records = await upsertStructuredMemoryFacts({
+    workspaceId: input.workspaceId,
+    conversationId: input.context.conversationId,
+    facts: safeFacts,
+  });
+
+  await logAgentRunEvent({
+    workspaceId: input.workspaceId,
+    conversationId: input.context.conversationId,
+    runId: input.runId,
+    actionType: AGENT_RUN_ACTION_TYPES.MEMORY_UPDATED,
+    actor: {
+      actorAgentAssignmentId: input.context.assignment?.id ?? null,
+    },
+    metadata: {
+      factCount: records.length,
+      threshold: STRUCTURED_MEMORY_WRITE_CONFIDENCE_THRESHOLD,
+      keys: records.map((record) => record.key),
+    },
+  });
+
+  return records;
 }
 
 export async function generateDraftAndCreateApprovalForWorkspace(input: {
@@ -239,6 +325,7 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
           planner.suggestedWorkflowStateChange ?? null,
         missingInformationQuestions: planner.missingInformationQuestions ?? null,
         escalationReason: planner.escalationReason ?? null,
+        classification: classifyAgentRun({ planner }),
       },
     });
 
@@ -263,6 +350,10 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
         metadata: {
           escalation: preGenerationEscalation,
           stage: "pre_generation",
+          classification: classifyAgentRun({
+            planner,
+            escalation: preGenerationEscalation,
+          }),
         },
       });
 
@@ -291,6 +382,10 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
           status: "escalated",
           stage: "pre_generation",
           escalationReasonCode: preGenerationEscalation.escalationReasonCode,
+          classification: classifyAgentRun({
+            planner,
+            escalation: preGenerationEscalation,
+          }),
         },
       });
 
@@ -312,6 +407,10 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
                 stage: "pre_generation",
                 escalationReasonCode:
                   preGenerationEscalation.escalationReasonCode ?? null,
+                classification: classifyAgentRun({
+                  planner,
+                  escalation: preGenerationEscalation,
+                }),
               },
             },
           }),
@@ -394,6 +493,10 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
         metadata: {
           escalation: postGenerationEscalation,
           stage: "post_generation",
+          classification: classifyAgentRun({
+            planner,
+            escalation: postGenerationEscalation,
+          }),
         },
       });
 
@@ -422,6 +525,10 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
           status: "escalated",
           stage: "post_generation",
           escalationReasonCode: postGenerationEscalation.escalationReasonCode,
+          classification: classifyAgentRun({
+            planner,
+            escalation: postGenerationEscalation,
+          }),
         },
       });
 
@@ -443,6 +550,10 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
                 stage: "post_generation",
                 escalationReasonCode:
                   postGenerationEscalation.escalationReasonCode ?? null,
+                classification: classifyAgentRun({
+                  planner,
+                  escalation: postGenerationEscalation,
+                }),
               },
             },
           }),
@@ -468,6 +579,13 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
       trigger: input.trigger,
       generation,
     });
+    const persistedFacts = await persistStructuredFactsFromGeneration({
+      workspaceId,
+      runId,
+      context,
+      generation,
+      sourceMessageId: input.trigger.sourceMessageId ?? null,
+    });
 
     await logAgentRunEvent({
       workspaceId,
@@ -485,6 +603,11 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
         approvalRequestId: approval.approvalRequestId,
         plannerAction: planner.actionType,
         confidence: generation.confidenceScore,
+        classification: classifyAgentRun({
+          planner,
+          escalation: postGenerationEscalation,
+        }),
+        persistedFactCount: persistedFacts.length,
       },
     });
 
@@ -523,7 +646,7 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
           draftMessageId: approval.draftMessageId,
           agentAssignmentId: context.assignment?.id ?? null,
           metadata: {
-            provider: context.platform === "EMAIL" ? "gmail" : "slack",
+            provider: "gmail",
             runId,
           },
         },
@@ -564,6 +687,13 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
             metadata: {
               status: "draft_created",
               confidence: generation.confidenceScore,
+              classification: classifyAgentRun({
+                planner,
+                escalation: postGenerationEscalation,
+              }),
+              provider: generation.provider,
+              model: generation.model,
+              promptVersion: generation.promptVersion,
             },
           },
         }),
@@ -585,6 +715,15 @@ export async function generateDraftAndCreateApprovalForWorkspace(input: {
         status: "draft_created",
         plannerAction: planner.actionType,
         confidence: generation.confidenceScore,
+        classification: classifyAgentRun({
+          planner,
+          escalation: postGenerationEscalation,
+        }),
+        provider: generation.provider,
+        model: generation.model,
+        promptVersion: generation.promptVersion,
+        generatorVersion: generation.generatorVersion,
+        persistedFactCount: persistedFacts.length,
       },
     });
 

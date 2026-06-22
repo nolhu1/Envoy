@@ -1,9 +1,6 @@
 "use server";
 
-import {
-  buildGmailAuthorizationUrl,
-  buildSlackAuthorizationUrl,
-} from "@envoy/connectors";
+import { buildGmailAuthorizationUrl } from "@envoy/connectors";
 import {
   AGENT_TRIGGER_TYPES,
   createApprovalRequestForAgentDraft,
@@ -33,6 +30,10 @@ import { assertRateLimit } from "@/lib/rate-limit";
 import { getCurrentWorkspace } from "@/lib/workspace";
 import { requireAuthenticatedEntryPoint } from "@/lib/workspace-guards";
 import { generateDraftFromPlanner } from "@/lib/draft-generator";
+import {
+  renewGmailWatchForIntegration,
+  setGmailLiveSyncEnabledForIntegration,
+} from "@/lib/gmail-ingestion";
 import { planAgentResponseForWorkspace } from "@/lib/response-planner";
 
 export async function startGmailConnectAction() {
@@ -67,37 +68,6 @@ export async function startGmailConnectAction() {
   redirect(authorizationUrl);
 }
 
-export async function startSlackConnectAction() {
-  const authContext = await requireAuthenticatedEntryPoint({
-    permission: PERMISSIONS.CONNECT_INTEGRATIONS,
-  });
-  try {
-    assertRateLimit({
-      key: `connect:slack:${authContext.userId}`,
-      limit: 6,
-      windowMs: 15 * 60_000,
-    });
-  } catch (error) {
-    redirect(
-      `/settings/workspace?integration=slack&action=reconnect&status=error&message=${encodeURIComponent(
-        sanitizeUiErrorMessage(error) || "Slack reconnect is temporarily rate limited.",
-      )}`,
-    );
-  }
-  const workspace = await getCurrentWorkspace();
-
-  if (!workspace || workspace.id !== authContext.workspaceId) {
-    throw new Error("The current workspace could not be loaded.");
-  }
-
-  const { authorizationUrl } = buildSlackAuthorizationUrl({
-    workspaceId: workspace.id,
-    initiatingUserId: authContext.userId,
-  });
-
-  redirect(authorizationUrl);
-}
-
 function toSyncErrorMessage(error: unknown) {
   return sanitizeUiErrorMessage(error) || "Unable to sync integration.";
 }
@@ -108,7 +78,7 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 
 function buildDisconnectedMetadata(input: {
   previousMetadata: unknown;
-  provider: "gmail" | "slack";
+  provider: "gmail";
 }) {
   const previous = isJsonObject(input.previousMetadata)
     ? input.previousMetadata
@@ -158,8 +128,12 @@ async function requireAdminWorkspaceDevAccess() {
   const { authContext, workspace } =
     await requireWorkspaceForIntegrationManagement();
 
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Workspace review tools are disabled in production.");
+  }
+
   if (authContext.role !== "ADMIN") {
-    throw new Error("Only admins can use temporary dev helpers.");
+    throw new Error("Only admins can use workspace review tools.");
   }
 
   return {
@@ -180,7 +154,7 @@ async function getManagedIntegration(input: {
       workspaceId: input.workspaceId,
       deletedAt: null,
       platform: {
-        in: ["EMAIL", "SLACK"],
+        in: ["EMAIL"],
       },
     },
     select: {
@@ -295,14 +269,13 @@ async function ensureActiveDevAgentAssignment(input: {
       data: {
         workspaceId: input.workspaceId,
         conversationId: input.conversationId,
-        goal: "Temporary dev-only agent planning and draft preview",
+        goal: "Workspace draft preview",
         instructions:
-          "TODO(remove-after-testing): temporary assignment used only for draft generator preview testing.",
+          "Used by the workspace draft preview tool.",
         tone: "Clear and concise",
         allowedActionsJson: ["draft_reply", "ask_for_missing_information", "wait", "escalate"],
         escalationRulesJson: {
-          temporary: true,
-          createdFor: "draft_generator_dev_testing",
+          createdFor: "draft_generator_preview",
         } as never,
         assignedByUserId: input.assignedByUserId,
         isActive: true,
@@ -378,7 +351,7 @@ export async function syncIntegrationAction(formData: FormData) {
   } catch (error) {
     redirect(
       `/settings/workspace?integration=${
-        integration.platform === "EMAIL" ? "gmail" : "slack"
+        "gmail"
       }&action=sync&status=error&message=${encodeURIComponent(
         toSyncErrorMessage(error),
       )}`,
@@ -386,12 +359,13 @@ export async function syncIntegrationAction(formData: FormData) {
   }
 
   if (
+    integration.status !== "ERROR" &&
     integration.status !== "CONNECTED" &&
     integration.status !== "SYNC_IN_PROGRESS"
   ) {
     redirect(
       `/settings/workspace?integration=${
-        integration.platform === "EMAIL" ? "gmail" : "slack"
+        "gmail"
       }&action=sync&status=error&message=${encodeURIComponent(
         "Reconnect this integration before syncing.",
       )}`,
@@ -401,11 +375,8 @@ export async function syncIntegrationAction(formData: FormData) {
   let queuedRedirectHref: string;
 
   try {
-    const provider = integration.platform === "EMAIL" ? "gmail" : "slack";
-    const jobType =
-      integration.platform === "EMAIL"
-        ? WORKER_JOB_TYPES.SYNC_GMAIL_INTEGRATION
-        : WORKER_JOB_TYPES.SYNC_SLACK_INTEGRATION;
+    const provider = "gmail";
+    const jobType = WORKER_JOB_TYPES.SYNC_GMAIL_INTEGRATION;
     const requestedAtDate = new Date();
     const requestedAt = requestedAtDate.toISOString();
     const enqueueResult = await enqueueRuntimeJob({
@@ -436,7 +407,7 @@ export async function syncIntegrationAction(formData: FormData) {
     const message = toSyncErrorMessage(error);
     redirect(
       `/settings/workspace?integration=${
-        integration.platform === "EMAIL" ? "gmail" : "slack"
+        "gmail"
       }&action=sync&status=error&message=${encodeURIComponent(message)}`,
     );
   }
@@ -526,6 +497,67 @@ export async function renewGmailWatchAction(formData: FormData) {
   redirect(queuedRedirectHref);
 }
 
+export async function toggleGmailLiveSyncAction(formData: FormData) {
+  const { workspace } = await requireWorkspaceForIntegrationManagement();
+  const integrationId = String(formData.get("integrationId") ?? "").trim();
+  const enabledValue = String(formData.get("enabled") ?? "").trim();
+
+  if (!integrationId) {
+    throw new Error("Integration id is required.");
+  }
+
+  if (enabledValue !== "true" && enabledValue !== "false") {
+    throw new Error("Enabled state is required.");
+  }
+
+  const integration = await getManagedIntegration({
+    workspaceId: workspace.id,
+    integrationId,
+  });
+
+  if (!integration || integration.platform !== "EMAIL") {
+    throw new Error("No Gmail integration is connected for this workspace.");
+  }
+
+  const enabled = enabledValue === "true";
+
+  try {
+    await setGmailLiveSyncEnabledForIntegration({
+      workspaceId: workspace.id,
+      integrationId: integration.id,
+      enabled,
+    });
+
+    if (enabled) {
+      const watchResult = await renewGmailWatchForIntegration({
+        workspaceId: workspace.id,
+        integrationId: integration.id,
+      });
+
+      if (watchResult.status === "error") {
+        redirect(
+          `/settings/workspace?integration=gmail&action=live-sync&status=error&message=${encodeURIComponent(
+            watchResult.error ??
+              "Live sync was enabled, but Gmail watch could not be started.",
+          )}`,
+        );
+      }
+    }
+  } catch (error) {
+    redirect(
+      `/settings/workspace?integration=gmail&action=live-sync&status=error&message=${encodeURIComponent(
+        sanitizeUiErrorMessage(error) || "Unable to update Gmail live sync.",
+      )}`,
+    );
+  }
+
+  redirect(
+    `/settings/workspace?integration=gmail&action=live-sync&status=${
+      enabled ? "enabled" : "disabled"
+    }`,
+  );
+}
+
 export async function disconnectIntegrationAction(formData: FormData) {
   const { workspace } = await requireWorkspaceForIntegrationManagement();
   const integrationId = String(formData.get("integrationId") ?? "").trim();
@@ -563,7 +595,7 @@ export async function disconnectIntegrationAction(formData: FormData) {
       deletedAt: null,
       platformMetadataJson: buildDisconnectedMetadata({
         previousMetadata: integration.platformMetadataJson,
-        provider: integration.platform === "EMAIL" ? "gmail" : "slack",
+        provider: "gmail",
       }),
     },
   });
@@ -584,11 +616,11 @@ export async function disconnectIntegrationAction(formData: FormData) {
       source: ENVOY_EVENT_SOURCES.UI,
       payload: {
         integrationId: integration.id,
-        platform: integration.platform,
+        platform: "EMAIL",
         externalAccountId: integration.externalAccountId ?? null,
         status: "DISCONNECTED",
         metadata: {
-          provider: integration.platform === "EMAIL" ? "gmail" : "slack",
+          provider: "gmail",
           displayName: integration.displayName ?? null,
         },
       },
@@ -597,7 +629,7 @@ export async function disconnectIntegrationAction(formData: FormData) {
 
   redirect(
     `/settings/workspace?integration=${
-      integration.platform === "EMAIL" ? "gmail" : "slack"
+      "gmail"
     }&action=disconnect&status=completed`,
   );
 }
@@ -626,22 +658,18 @@ export async function createTestApprovalRequestAction(formData: FormData) {
     assignedAgentIsActive: Boolean(conversation.assignedAgent?.isActive),
   });
 
-  // TODO(remove-after-testing): temporary admin-only approval seed helper.
   const result = await createApprovalRequestForAgentDraft({
     workspaceId: workspace.id,
     conversationId: conversation.id,
     proposedByAgentAssignmentId: agentAssignmentId,
     bodyText:
-      conversation.platform === "SLACK"
-        ? "Hi there,\n\nThis is a temporary Slack approval test draft created from workspace settings so Phase J approval-to-send can be exercised before the AI drafting UI exists.\n\nBest,\nEnvoy"
-        : "Hi there,\n\nThis is a temporary Gmail approval test draft created from workspace settings so Phase J approval-to-send can be exercised before the AI drafting UI exists.\n\nBest,\nEnvoy",
+      "Hi there,\n\nThis Gmail draft was created from workspace settings so the approval flow can be reviewed.\n\nBest,\nEnvoy",
     actorContext: {
       actorType: "AGENT",
       actorAgentAssignmentId: agentAssignmentId,
     },
     platformMetadataJson: {
-      temporary: true,
-      createdFor: "approval_queue_dev_testing",
+      createdFor: "approval_queue_review",
       createdByUserId: authContext.userId,
       sourceConversationId: conversation.id,
     },
@@ -680,7 +708,7 @@ export async function previewDraftGeneratorAction(formData: FormData) {
     const trigger = {
       triggerType: AGENT_TRIGGER_TYPES.INBOUND_MESSAGE,
       triggerReason:
-        "TODO(remove-after-testing): temporary draft generator preview in workspace settings.",
+        "Workspace settings draft preview.",
     } as const;
 
     const { context, plan } = await planAgentResponseForWorkspace({

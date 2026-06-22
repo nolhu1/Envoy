@@ -176,8 +176,14 @@ function toSafeErrorJson(error: unknown): JsonValue {
   }
 
   if (error && typeof error === "object") {
+    const errorRecord = error as Record<string, unknown>;
+    const message =
+      typeof errorRecord.message === "string" && errorRecord.message.trim()
+        ? errorRecord.message.slice(0, 1000)
+        : "Unknown object error.";
+
     return {
-      message: "Unknown object error.",
+      message,
       details: toPrismaJsonValue(error) as JsonValue,
     };
   }

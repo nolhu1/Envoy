@@ -58,6 +58,11 @@ export type AutomaticAgentTriggerExecutionResult =
       status: "executed";
       flowStatus: string;
       approvalRequestId: string | null;
+      draftMessageId: string | null;
+      escalationReasonCode: string | null;
+      provider: string | null;
+      model: string | null;
+      promptVersion: string | null;
     }
   | {
       status: "failed";
@@ -218,6 +223,31 @@ function toEnvoyEventFromJournalRecord(record: {
 export async function executeAutomaticAgentTriggerFromJob(
   payload: AgentRunFromTriggerJobPayload,
 ): Promise<AutomaticAgentTriggerExecutionResult> {
+  if (payload.triggerType === "follow_up_due") {
+    return executeAutomaticAgentTriggerForContext({
+      workspaceId: payload.workspaceId,
+      conversationId: payload.conversationId,
+      triggerType: payload.triggerType,
+      sourceEventId: payload.sourceEventId,
+      sourceEventType: null,
+      sourceEventSource: "follow_up_scheduler",
+      trigger: {
+        triggerType: payload.triggerType,
+        triggerReason: "Follow-up due evaluation requested a draft.",
+        metadata: {
+          automatic: true,
+          requestedAt: payload.requestedAt,
+          runtimeTrigger: "follow_up_due",
+          dedupeBucket: payload.requestedAt.slice(0, 13),
+        },
+      },
+    });
+  }
+
+  if (!payload.sourceEventId) {
+    throw new Error("Agent trigger job requires a source event for this trigger type.");
+  }
+
   const prisma = getPrisma();
   const eventJournal = await prisma.eventJournal.findUnique({
     where: {
@@ -535,6 +565,11 @@ async function executeAutomaticAgentTriggerForContext(
       status: "executed" as const,
       flowStatus: flowResult.status,
       approvalRequestId: flowResult.approval?.approvalRequestId ?? null,
+      draftMessageId: flowResult.approval?.draftMessageId ?? null,
+      escalationReasonCode: flowResult.escalation.escalationReasonCode ?? null,
+      provider: flowResult.generation?.provider ?? null,
+      model: flowResult.generation?.model ?? null,
+      promptVersion: flowResult.generation?.promptVersion ?? null,
     };
   } catch (error) {
     const safeError = toSafeErrorSummary(error);

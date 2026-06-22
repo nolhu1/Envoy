@@ -108,7 +108,7 @@ function createManualAgentRunSuppressedResult(input: {
       conversationId: input.conversationId,
       assignmentId: input.assignmentId ?? null,
     },
-  } satisfies WorkerJobResult;
+  };
 }
 
 export function createWorkerJobRegistry() {
@@ -128,27 +128,6 @@ export function createWorkerJobRegistry() {
         handledAt: new Date().toISOString(),
         output: {
           provider: "gmail",
-          reason: job.payload.reason,
-          requestedByUserId: job.payload.requestedByUserId,
-          ...result,
-        },
-      };
-    })
-    .register(WORKER_JOB_TYPES.SYNC_SLACK_INTEGRATION, async ({ job }) => {
-      process.env.ENVOY_DISABLE_INLINE_AGENT_TRIGGERS ??= "true";
-      const { syncWorkspaceSlackIntegration } = await import(
-        "../../web/src/lib/slack-ingestion"
-      );
-      const result = await syncWorkspaceSlackIntegration({
-        workspaceId: job.workspaceId,
-        integrationId: job.payload.integrationId,
-      });
-
-      return {
-        status: WORKER_JOB_STATUSES.COMPLETED,
-        handledAt: new Date().toISOString(),
-        output: {
-          provider: "slack",
           reason: job.payload.reason,
           requestedByUserId: job.payload.requestedByUserId,
           ...result,
@@ -287,24 +266,18 @@ export function createWorkerJobRegistry() {
           }
         }
 
-        const result =
-          job.payload.platform === "EMAIL"
-            ? await import("../../web/src/lib/gmail-send").then(
-                ({ sendWorkspaceGmailReply }) =>
-                  sendWorkspaceGmailReply({
-                    workspaceId: job.workspaceId,
-                    actorUserId,
-                    messageId: job.payload.messageId,
-                  }),
-              )
-            : await import("../../web/src/lib/slack-send").then(
-                ({ sendWorkspaceSlackReply }) =>
-                  sendWorkspaceSlackReply({
-                    workspaceId: job.workspaceId,
-                    actorUserId,
-                    messageId: job.payload.messageId,
-                  }),
-              );
+        if (job.payload.platform !== "EMAIL") {
+          throw new Error("Only Gmail outbound sends are supported.");
+        }
+
+        const result = await import("../../web/src/lib/gmail-send").then(
+          ({ sendWorkspaceGmailReply }) =>
+            sendWorkspaceGmailReply({
+              workspaceId: job.workspaceId,
+              actorUserId,
+              messageId: job.payload.messageId,
+            }),
+        );
 
         if (
           result.sendStatus === "FAILED" ||
@@ -588,6 +561,10 @@ export function createWorkerJobRegistry() {
             draftMessageId: result.approval?.draftMessageId ?? null,
             escalationReasonCode:
               result.escalation.escalationReasonCode ?? null,
+            provider: result.generation?.provider ?? null,
+            model: result.generation?.model ?? null,
+            promptVersion: result.generation?.promptVersion ?? null,
+            generatorVersion: result.generation?.generatorVersion ?? null,
           },
         };
       } catch (error) {
@@ -610,6 +587,26 @@ export function createWorkerJobRegistry() {
           error: workerError,
         };
       }
+    })
+    .register(WORKER_JOB_TYPES.AGENT_EVALUATE_FOLLOW_UPS, async ({ job }) => {
+      const { evaluateAndEnqueueDueAgentFollowUps } = await import(
+        "../../web/src/lib/agent-follow-ups"
+      );
+      const result = await evaluateAndEnqueueDueAgentFollowUps({
+        workspaceId: job.payload.workspaceId,
+        requestedAt: job.payload.requestedAt,
+        reason: job.payload.reason,
+      });
+
+      return {
+        status: WORKER_JOB_STATUSES.COMPLETED,
+        handledAt: new Date().toISOString(),
+        output: {
+          status: "evaluated",
+          triggerType: "follow_up_due",
+          ...result,
+        },
+      };
     })
     .register(WORKER_JOB_TYPES.MAINTENANCE_HEALTH_CHECK, async ({ job }) => {
       console.log("[worker] maintenance.health_check", job.jobId, job.payload);

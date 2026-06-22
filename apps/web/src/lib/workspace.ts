@@ -27,7 +27,6 @@ export async function createWorkspaceForSignedUpUser({
 
   return prisma.workspace.create({
     data: {
-      // Phase D2 cleanup: replace this temporary workspace bootstrap path.
       name: getDefaultWorkspaceName(email, name),
       users: {
         create: {

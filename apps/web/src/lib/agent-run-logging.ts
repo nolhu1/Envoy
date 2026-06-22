@@ -11,6 +11,7 @@ export const AGENT_RUN_ACTION_TYPES = {
   ESCALATION_DECIDED: "AGENT_ESCALATION_DECIDED",
   DRAFT_CREATED: "AGENT_DRAFT_CREATED",
   APPROVAL_REQUESTED: "AGENT_APPROVAL_REQUESTED",
+  MEMORY_UPDATED: "AGENT_MEMORY_UPDATED",
   RUN_COMPLETED: "AGENT_RUN_COMPLETED",
   RUN_FAILED: "AGENT_RUN_FAILED",
 } as const;
@@ -109,6 +110,10 @@ export function buildSafeGenerationSummary(generation: DraftGenerationResult) {
     proposedMessageLength: generation.proposedMessageText.length,
     provider: generation.provider,
     model: generation.model,
+    promptVersion: generation.promptVersion,
+    generatorVersion: generation.generatorVersion,
+    temperature: generation.temperature,
+    maxOutputTokens: generation.maxOutputTokens,
   };
 }
 

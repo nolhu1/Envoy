@@ -42,7 +42,7 @@ type SendableMessageRecord = {
   id: string;
   workspaceId: string;
   conversationId: string;
-  platform: "EMAIL" | "SLACK";
+  platform: "EMAIL";
   externalMessageId: string | null;
   senderType: "EXTERNAL" | "USER" | "AGENT" | "SYSTEM";
   direction: "INBOUND" | "OUTBOUND" | "INTERNAL";
@@ -63,14 +63,14 @@ type SendableMessageRecord = {
     id: string;
     workspaceId: string;
     integrationId: string;
-    platform: "EMAIL" | "SLACK";
+    platform: "EMAIL";
     externalConversationId: string;
     subject: string | null;
     platformMetadataJson: unknown;
     integration: {
       id: string;
       workspaceId: string;
-      platform: "EMAIL" | "SLACK";
+      platform: "EMAIL";
       status: "PENDING" | "CONNECTED" | "SYNC_IN_PROGRESS" | "ERROR" | "DISCONNECTED";
       platformMetadataJson: unknown;
     };

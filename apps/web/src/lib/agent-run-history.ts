@@ -42,6 +42,22 @@ export type AgentRunHistoryRow = {
   approvalRequestId: string | null;
   errorSummary: string | null;
   attemptCount: number;
+  latencyMs: number | null;
+  provider: string | null;
+  model: string | null;
+  promptVersion: string | null;
+  errorClass: string | null;
+};
+
+export type AgentRunMetrics = {
+  totalRuns: number;
+  completedRuns: number;
+  suppressedRuns: number;
+  escalatedRuns: number;
+  failedRuns: number;
+  draftAcceptanceRate: number | null;
+  rejectionRevisionRate: number | null;
+  averageLatencyMs: number | null;
 };
 
 export type AgentRunDetail = AgentRunHistoryRow & {
@@ -102,11 +118,21 @@ function deriveReason(input: {
   );
 }
 
+function deriveLatencyMs(job: {
+  queuedAt: Date;
+  completedAt: Date | null;
+  failedAt: Date | null;
+  deadLetteredAt: Date | null;
+}) {
+  const end = job.completedAt ?? job.failedAt ?? job.deadLetteredAt;
+  return end ? Math.max(0, end.getTime() - job.queuedAt.getTime()) : null;
+}
+
 function titleForConversation(
   conversation:
     | {
         subject: string | null;
-        platform: "EMAIL" | "SLACK";
+        platform: "EMAIL";
         externalConversationId: string;
       }
     | undefined,
@@ -117,7 +143,7 @@ function titleForConversation(
 
   return (
     conversation.subject?.trim() ||
-    `${conversation.platform === "EMAIL" ? "Gmail" : "Slack"} ${conversation.externalConversationId}`
+    `Gmail ${conversation.externalConversationId}`
   );
 }
 
@@ -138,7 +164,7 @@ function rowFromJob(
   },
   conversationById: Map<string, {
     subject: string | null;
-    platform: "EMAIL" | "SLACK";
+    platform: "EMAIL";
     externalConversationId: string;
     assignedAgentId: string | null;
   }>,
@@ -181,6 +207,13 @@ function rowFromJob(
     approvalRequestId: readPayloadString(output, "approvalRequestId"),
     errorSummary: readErrorSummary(job.lastErrorJson),
     attemptCount: job.attempts.length,
+    latencyMs: deriveLatencyMs(job),
+    provider: readOperatorString(output.provider),
+    model: readOperatorString(output.model),
+    promptVersion: readOperatorString(output.promptVersion),
+    errorClass: isOperatorObject(job.lastErrorJson)
+      ? readOperatorString(job.lastErrorJson.name)
+      : null,
   };
 }
 
@@ -194,7 +227,13 @@ export async function listAgentRunHistory(input: {
   const jobs = await prisma.runtimeJob.findMany({
     where: {
       workspaceId: input.workspaceId,
-      jobType: { in: ["agent.run_from_trigger", "agent.run_manual"] },
+      jobType: {
+        in: [
+          "agent.run_from_trigger",
+          "agent.run_manual",
+          "agent.evaluate_follow_ups",
+        ],
+      },
       status: status ? (status as never) : undefined,
     },
     orderBy: [{ queuedAt: "desc" }],
@@ -225,6 +264,7 @@ export async function listAgentRunHistory(input: {
     where: {
       workspaceId: input.workspaceId,
       id: { in: conversationIds },
+      platform: "EMAIL",
     },
     select: {
       id: true,
@@ -235,7 +275,13 @@ export async function listAgentRunHistory(input: {
     },
   });
   const conversationById = new Map(
-    conversations.map((conversation) => [conversation.id, conversation]),
+    conversations.map((conversation) => [
+      conversation.id,
+      {
+        ...conversation,
+        platform: "EMAIL" as const,
+      },
+    ]),
   );
 
   return jobs
@@ -252,6 +298,10 @@ export async function listAgentRunHistory(input: {
         return false;
       }
 
+      if (row.conversationId && !conversationById.has(row.conversationId)) {
+        return false;
+      }
+
       return true;
     });
 }
@@ -265,7 +315,13 @@ export async function getAgentRunDetail(input: {
     where: {
       id: input.runtimeJobId,
       workspaceId: input.workspaceId,
-      jobType: { in: ["agent.run_from_trigger", "agent.run_manual"] },
+      jobType: {
+        in: [
+          "agent.run_from_trigger",
+          "agent.run_manual",
+          "agent.evaluate_follow_ups",
+        ],
+      },
     },
     select: {
       id: true,
@@ -306,6 +362,7 @@ export async function getAgentRunDetail(input: {
           where: {
             id: conversationId,
             workspaceId: input.workspaceId,
+            platform: "EMAIL",
           },
           select: {
             id: true,
@@ -348,7 +405,15 @@ export async function getAgentRunDetail(input: {
     }),
   ]);
   const conversationById = new Map(
-    conversation ? [[conversation.id, conversation] as const] : [],
+    conversation
+      ? [[
+          conversation.id,
+          {
+            ...conversation,
+            platform: "EMAIL" as const,
+          },
+        ] as const]
+      : [],
   );
   const base = rowFromJob(job, conversationById);
   const payloadJson = sanitizeOperatorMetadata(job.payloadJson);
@@ -387,6 +452,87 @@ export async function getAgentRunDetail(input: {
       errorSummary: readErrorSummary(record.errorJson),
     })),
   } satisfies AgentRunDetail;
+}
+
+export async function getAgentRunMetrics(input: {
+  workspaceId: string;
+}): Promise<AgentRunMetrics> {
+  const prisma = getPrisma();
+  const [jobs, approvals] = await Promise.all([
+    prisma.runtimeJob.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        jobType: {
+          in: [
+            "agent.run_from_trigger",
+            "agent.run_manual",
+            "agent.evaluate_follow_ups",
+          ],
+        },
+      },
+      select: {
+        status: true,
+        queuedAt: true,
+        completedAt: true,
+        failedAt: true,
+        deadLetteredAt: true,
+        resultJson: true,
+      },
+      take: 1000,
+      orderBy: [{ queuedAt: "desc" }],
+    }),
+    prisma.approvalRequest.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        draftMessage: {
+          is: {
+            senderType: "AGENT",
+          },
+        },
+      },
+      select: {
+        status: true,
+        editedContent: true,
+      },
+      take: 1000,
+      orderBy: [{ createdAt: "desc" }],
+    }),
+  ]);
+  const latencies = jobs
+    .map((job) => deriveLatencyMs(job))
+    .filter((latency): latency is number => latency != null);
+  const completedApprovals = approvals.filter(
+    (approval) => approval.status === "APPROVED",
+  ).length;
+  const rejectedOrEdited = approvals.filter(
+    (approval) =>
+      approval.status === "REJECTED" || Boolean(approval.editedContent?.trim()),
+  ).length;
+
+  return {
+    totalRuns: jobs.length,
+    completedRuns: jobs.filter((job) => job.status === "COMPLETED").length,
+    suppressedRuns: jobs.filter(
+      (job) => readOperatorString(outputFromResult(job.resultJson).status) === "suppressed",
+    ).length,
+    escalatedRuns: jobs.filter(
+      (job) => readOperatorString(outputFromResult(job.resultJson).flowStatus) === "escalated",
+    ).length,
+    failedRuns: jobs.filter(
+      (job) => job.status === "FAILED" || job.status === "DEAD_LETTERED",
+    ).length,
+    draftAcceptanceRate:
+      approvals.length > 0 ? completedApprovals / approvals.length : null,
+    rejectionRevisionRate:
+      approvals.length > 0 ? rejectedOrEdited / approvals.length : null,
+    averageLatencyMs:
+      latencies.length > 0
+        ? Math.round(
+            latencies.reduce((sum, value) => sum + value, 0) /
+              latencies.length,
+          )
+        : null,
+  };
 }
 
 export function formatAgentRunJobType(value: string) {

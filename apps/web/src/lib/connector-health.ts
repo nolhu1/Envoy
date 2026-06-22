@@ -19,8 +19,8 @@ export type ConnectorHealthSeverity =
 
 export type ConnectorHealthSummary = {
   integrationId: string | null;
-  provider: "gmail" | "slack";
-  platform: "EMAIL" | "SLACK";
+  provider: "gmail";
+  platform: "EMAIL";
   displayName: string;
   lifecycleStatus: string | null;
   status: ConnectorHealthStatus;
@@ -32,6 +32,7 @@ export type ConnectorHealthSummary = {
   hasMoreSyncPages: boolean;
   authProblem: boolean;
   rateLimited: boolean;
+  liveSyncEnabled: boolean;
   watchStatus: string | null;
   lastError: string | null;
   recommendedAction: string;
@@ -40,7 +41,7 @@ export type ConnectorHealthSummary = {
 
 type IntegrationRecord = {
   id: string;
-  platform: "EMAIL" | "SLACK";
+  platform: "EMAIL";
   displayName: string | null;
   externalAccountId: string | null;
   status: string;
@@ -68,9 +69,7 @@ function readProvider(value: unknown) {
     return null;
   }
 
-  return value.provider === "gmail" || value.provider === "slack"
-    ? value.provider
-    : null;
+  return value.provider === "gmail" ? value.provider : null;
 }
 
 function readString(value: unknown) {
@@ -90,10 +89,6 @@ function readCheckpoint(metadata: Record<string, unknown> | null) {
     return metadata.gmailSyncCheckpoint;
   }
 
-  if (isObject(metadata?.slackSyncCheckpoint)) {
-    return metadata.slackSyncCheckpoint;
-  }
-
   return null;
 }
 
@@ -111,6 +106,12 @@ function readDateIso(value: unknown) {
   const date = new Date(candidate);
 
   return Number.isFinite(date.getTime()) ? date.toISOString() : candidate;
+}
+
+function readLiveSyncEnabled(metadata: Record<string, unknown> | null) {
+  return typeof metadata?.gmailLiveSyncEnabled === "boolean"
+    ? metadata.gmailLiveSyncEnabled
+    : true;
 }
 
 function minutesSince(value: string | null, now: Date) {
@@ -161,15 +162,15 @@ function getRuntimeFailureMessage(records: RuntimeFailureRecord[]) {
 }
 
 function createNoIntegrationHealth(
-  platform: "EMAIL" | "SLACK",
+  platform: "EMAIL",
 ): ConnectorHealthSummary {
-  const provider = platform === "EMAIL" ? "gmail" : "slack";
+  const provider = "gmail";
 
   return {
     integrationId: null,
     provider,
     platform,
-    displayName: platform === "EMAIL" ? "Gmail" : "Slack",
+    displayName: "Gmail",
     lifecycleStatus: null,
     status: "disconnected",
     reason: "Integration is not connected.",
@@ -180,10 +181,10 @@ function createNoIntegrationHealth(
     hasMoreSyncPages: false,
     authProblem: false,
     rateLimited: false,
+    liveSyncEnabled: true,
     watchStatus: null,
     lastError: null,
-    recommendedAction:
-      platform === "EMAIL" ? "Connect Gmail." : "Connect Slack.",
+    recommendedAction: "Connect Gmail.",
     recentRuntimeFailureCount: 0,
   };
 }
@@ -197,7 +198,7 @@ export function evaluateConnectorHealth(input: {
   const metadata = isObject(input.integration.platformMetadataJson)
     ? input.integration.platformMetadataJson
     : null;
-  const provider = input.integration.platform === "EMAIL" ? "gmail" : "slack";
+  const provider = "gmail";
   const checkpoint = readCheckpoint(metadata);
   const gmailWatch = provider === "gmail" ? readWatch(metadata) : null;
   const recentRuntimeFailures = input.recentRuntimeFailures ?? [];
@@ -231,15 +232,15 @@ export function evaluateConnectorHealth(input: {
   const syncLagMinutes = minutesSince(lastSuccessfulSyncAt, now);
   const hasMoreSyncPages = checkpoint?.hasMore === true;
   const historyHasGap = checkpoint?.historyHasGap === true;
+  const liveSyncEnabled = readLiveSyncEnabled(metadata);
   const watchStatus = readString(gmailWatch?.status);
   const watchExpiration = readDateIso(gmailWatch?.expiration);
   const watchExpired =
     Boolean(watchExpiration) &&
     new Date(watchExpiration ?? "").getTime() <= now.getTime();
-  const authProblem =
-    input.integration.status === "ERROR" ||
-    looksAuthProblem(lastError, lastErrorCategory);
   const rateLimited = looksRateLimited(lastError);
+  const authProblem =
+    !rateLimited && looksAuthProblem(lastError, lastErrorCategory);
   const runtimeFailureCount = recentRuntimeFailures.length;
 
   let status: ConnectorHealthStatus = "healthy";
@@ -251,16 +252,24 @@ export function evaluateConnectorHealth(input: {
     status = "disconnected";
     severity = "neutral";
     reason = "Integration is disconnected.";
-    recommendedAction = `Reconnect ${provider === "gmail" ? "Gmail" : "Slack"}.`;
+    recommendedAction = "Reconnect Gmail.";
   } else if (authProblem) {
     status = "action_required";
     severity = "critical";
     reason = "Connector requires reauthorization or operator action.";
-    recommendedAction = `Reconnect ${provider === "gmail" ? "Gmail" : "Slack"}.`;
+    recommendedAction = "Reconnect Gmail.";
+  } else if (rateLimited) {
+    status = "degraded";
+    severity = "warning";
+    reason = "Provider rate limiting or quota pressure was detected.";
+    recommendedAction = "Wait for provider limits to recover, then retry sync.";
   } else if (
-    watchStatus === "ERROR" ||
-    watchStatus === "NOT_CONFIGURED" ||
-    watchExpired
+    liveSyncEnabled &&
+    (
+      watchStatus === "ERROR" ||
+      watchStatus === "NOT_CONFIGURED" ||
+      watchExpired
+    )
   ) {
     status = provider === "gmail" && watchStatus === "ERROR"
       ? "action_required"
@@ -280,11 +289,6 @@ export function evaluateConnectorHealth(input: {
     severity = "warning";
     reason = "Recent connector runtime job failures were detected.";
     recommendedAction = "Inspect runtime failures and retry after the cause is fixed.";
-  } else if (rateLimited) {
-    status = "degraded";
-    severity = "warning";
-    reason = "Provider rate limiting or quota pressure was detected.";
-    recommendedAction = "Wait for provider limits to recover, then retry sync.";
   } else if (input.integration.status === "SYNC_IN_PROGRESS") {
     status = "degraded";
     severity = "warning";
@@ -294,7 +298,7 @@ export function evaluateConnectorHealth(input: {
     status = "degraded";
     severity = "warning";
     reason = "More sync pages remain.";
-    recommendedAction = `Run another ${provider === "gmail" ? "Gmail" : "Slack"} sync.`;
+    recommendedAction = "Run another Gmail sync.";
   } else if (
     syncLagMinutes != null &&
     syncLagMinutes > SYNC_LAG_DEGRADED_MINUTES
@@ -302,12 +306,15 @@ export function evaluateConnectorHealth(input: {
     status = "degraded";
     severity = "warning";
     reason = "Last successful sync is stale.";
-    recommendedAction = `Run ${provider === "gmail" ? "Gmail" : "Slack"} sync.`;
+    recommendedAction = "Run Gmail sync.";
   } else if (!lastSuccessfulSyncAt && input.integration.status === "CONNECTED") {
     status = "unknown";
     severity = "neutral";
     reason = "No successful sync has been recorded yet.";
-    recommendedAction = `Run initial ${provider === "gmail" ? "Gmail" : "Slack"} sync.`;
+    recommendedAction = "Run initial Gmail sync.";
+  } else if (!liveSyncEnabled) {
+    reason = "Live sync is turned off. Manual sync remains available.";
+    recommendedAction = "Use Sync once now or turn live sync back on.";
   }
 
   return {
@@ -317,7 +324,7 @@ export function evaluateConnectorHealth(input: {
     displayName:
       input.integration.displayName ||
       input.integration.externalAccountId ||
-      (provider === "gmail" ? "Gmail" : "Slack"),
+      "Gmail",
     lifecycleStatus: input.integration.status,
     status,
     reason,
@@ -328,13 +335,16 @@ export function evaluateConnectorHealth(input: {
     hasMoreSyncPages,
     authProblem,
     rateLimited,
+    liveSyncEnabled,
     watchStatus:
       provider === "gmail"
-        ? [
-            watchStatus ?? "UNKNOWN",
-            watchExpired ? "expired" : null,
-            watchExpiration ? `expires ${watchExpiration}` : null,
-          ].filter(Boolean).join(" - ")
+        ? !liveSyncEnabled
+          ? "Disabled"
+          : [
+              watchStatus ?? "UNKNOWN",
+              watchExpired ? "expired" : null,
+              watchExpiration ? `expires ${watchExpiration}` : null,
+            ].filter(Boolean).join(" - ")
         : null,
     lastError,
     recommendedAction,
@@ -361,7 +371,7 @@ export async function listWorkspaceConnectorHealth(input: {
           },
         ],
         platform: {
-          in: ["EMAIL", "SLACK"],
+          in: ["EMAIL"],
         },
       },
       select: {
@@ -384,7 +394,6 @@ export async function listWorkspaceConnectorHealth(input: {
         jobType: {
           in: [
             "sync.gmail_integration",
-            "sync.slack_integration",
             "outbound.send_message",
             "maintenance.renew_gmail_watch",
           ],
@@ -428,15 +437,12 @@ export async function listWorkspaceConnectorHealth(input: {
     runtimeFailuresByIntegrationId.set(integrationId, bucket);
   }
 
-  const byPlatform = new Map<"EMAIL" | "SLACK", ConnectorHealthSummary>();
+  const byPlatform = new Map<"EMAIL", ConnectorHealthSummary>();
 
   for (const integration of integrations) {
     const provider = readProvider(integration.platformMetadataJson);
 
-    if (
-      (integration.platform === "EMAIL" && provider !== "gmail") ||
-      (integration.platform === "SLACK" && provider !== "slack")
-    ) {
+    if (integration.platform !== "EMAIL" || provider !== "gmail") {
       continue;
     }
 
@@ -460,14 +466,7 @@ export async function listWorkspaceConnectorHealth(input: {
     if (!byPlatform.has("EMAIL")) {
       result.push(createNoIntegrationHealth("EMAIL"));
     }
-
-    if (!byPlatform.has("SLACK")) {
-      result.push(createNoIntegrationHealth("SLACK"));
-    }
   }
 
-  return result.sort((left, right) => {
-    const order = { gmail: 0, slack: 1 } as const;
-    return order[left.provider] - order[right.provider];
-  });
+  return result;
 }

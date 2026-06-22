@@ -36,12 +36,14 @@ import {
   publishEnvoyEvents,
 } from "./event-publisher";
 import {
+  buildGmailLiveSyncPreferenceMetadata,
   buildPageSyncCheckpointMetadata,
   buildFailedSyncMetadata,
   buildGmailWatchMetadata,
   buildPushCheckpointMetadata,
   buildSuccessfulSyncMetadata,
   buildSyncInProgressMetadata,
+  readGmailLiveSyncEnabled,
   readGmailSyncCheckpoint,
 } from "./gmail-sync-checkpoint";
 import { sanitizeErrorMessage } from "./security";
@@ -80,7 +82,7 @@ export type IngestGmailPushNotificationResult = {
 
 export type RenewGmailWatchForIntegrationResult = {
   integrationId: string;
-  status: "active" | "error";
+  status: "active" | "error" | "skipped";
   topicName: string | null;
   historyId: string | null;
   expiration: string | null;
@@ -406,6 +408,42 @@ async function completeGmailPushIdempotency(input: {
   });
 }
 
+export async function setGmailLiveSyncEnabledForIntegration(input: {
+  workspaceId: string;
+  integrationId: string;
+  enabled: boolean;
+}) {
+  const prisma = getPrisma();
+  const integration = await prisma.integration.findFirst({
+    where: {
+      id: input.integrationId,
+      workspaceId: input.workspaceId,
+      deletedAt: null,
+      platform: "EMAIL",
+    },
+    select: {
+      id: true,
+      platformMetadataJson: true,
+    },
+  });
+
+  if (!integration) {
+    throw new Error("Gmail integration could not be loaded.");
+  }
+
+  await prisma.integration.update({
+    where: { id: integration.id },
+    data: {
+      platformMetadataJson: toPrismaJsonValue(
+        buildGmailLiveSyncPreferenceMetadata({
+          currentMetadata: integration.platformMetadataJson,
+          enabled: input.enabled,
+        }),
+      ),
+    },
+  });
+}
+
 export async function ingestGmailPushNotification(
   input: IngestGmailPushNotificationInput,
 ): Promise<IngestGmailPushNotificationResult> {
@@ -459,6 +497,22 @@ export async function ingestGmailPushNotification(
 
     if (!integrationSnapshot) {
       throw new Error("Gmail integration could not be loaded for push.");
+    }
+
+    if (!readGmailLiveSyncEnabled(integrationSnapshot.platformMetadataJson)) {
+      const result = {
+        status: "duplicate",
+        integrationId: input.integrationId,
+        threadCount: 0,
+        messageCount: 0,
+        insertedEventCount: 0,
+        startHistoryId: null,
+        processedHistoryId: null,
+      } satisfies IngestGmailPushNotificationResult;
+
+      await completeGmailPushIdempotency({ key: pubSubKey, result });
+
+      return result;
     }
 
     const checkpoint = readGmailSyncCheckpoint(
@@ -763,6 +817,29 @@ export async function renewGmailWatchForIntegration(input: {
 
   if (!integration) {
     throw new Error("Gmail integration could not be loaded for watch renewal.");
+  }
+
+  if (!readGmailLiveSyncEnabled(integration.platformMetadataJson)) {
+    await prisma.integration.update({
+      where: { id: input.integrationId },
+      data: {
+        platformMetadataJson: toPrismaJsonValue(
+          buildGmailLiveSyncPreferenceMetadata({
+            currentMetadata: integration.platformMetadataJson,
+            enabled: false,
+          }),
+        ),
+      },
+    });
+
+    return {
+      integrationId: input.integrationId,
+      status: "skipped",
+      topicName: null,
+      historyId: null,
+      expiration: null,
+      error: null,
+    };
   }
 
   let connectorContext = await resolveConnectorContextForWorkspaceIntegration({

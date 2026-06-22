@@ -15,7 +15,7 @@ import {
 } from "@/lib/conversation-display";
 import { sanitizeUiErrorMessage } from "@/lib/security";
 
-type ThreadPlatform = "EMAIL" | "SLACK";
+type ThreadPlatform = "EMAIL";
 
 type ThreadConversationRecord = {
   id: string;
@@ -55,6 +55,13 @@ type ThreadConversationRecord = {
     escalationRulesJson: unknown;
     isActive: boolean;
   } | null;
+  conversationFacts: Array<{
+    id: string;
+    key: string;
+    valueText: string;
+    confidence: number | null;
+    updatedAt: Date;
+  }>;
   messages: Array<{
     id: string;
     platform: ThreadPlatform;
@@ -157,6 +164,7 @@ export type ConversationThread = {
   enabledTriggerTypes: AgentTriggerType[];
   hasConfiguredTriggerRules: boolean;
   participants: ThreadConversationRecord["participants"];
+  facts: ThreadConversationRecord["conversationFacts"];
   messages: ThreadMessageRow[];
   recentSendFailure: {
     messageId: string;
@@ -247,36 +255,12 @@ function buildProviderContext(
     ? message.platformMetadataJson
     : {};
   const parts = [
-    message.platform === "EMAIL" ? "Gmail" : "Slack DM",
+    "Gmail",
     readString(metadata.from) ? `from ${readString(metadata.from)}` : null,
     readString(metadata.to) ? `to ${readString(metadata.to)}` : null,
-    readString(metadata.channelId) ? `channel ${readString(metadata.channelId)}` : null,
-    readString(metadata.threadTs) ? `thread ${readString(metadata.threadTs)}` : null,
   ].filter(Boolean);
 
   return parts.length > 0 ? parts.join(" - ") : null;
-}
-
-function hasSlackPrivateDownloadUrl(attachment: {
-  externalUrl: string | null;
-  platformMetadataJson: unknown;
-}) {
-  const metadata = isJsonObject(attachment.platformMetadataJson)
-    ? attachment.platformMetadataJson
-    : {};
-  const rawPayload = isJsonObject(metadata.rawPayloadJson)
-    ? metadata.rawPayloadJson
-    : {};
-  const privateUrl =
-    readString(rawPayload.url_private_download) ??
-    readString(rawPayload.url_private) ??
-    readString(metadata.url_private_download) ??
-    readString(metadata.url_private) ??
-    (attachment.externalUrl?.includes("slack.com/files-pri/")
-      ? attachment.externalUrl
-      : null);
-
-  return Boolean(privateUrl);
 }
 
 function buildAttachmentDownloadState(
@@ -298,18 +282,6 @@ function buildAttachmentDownloadState(
       : {
           downloadUrl: null,
           downloadUnavailableReason: "Download unavailable",
-        };
-  }
-
-  if (attachment.platform === "SLACK") {
-    return hasSlackPrivateDownloadUrl(attachment)
-      ? {
-          downloadUrl: `/api/attachments/${attachment.id}/download`,
-          downloadUnavailableReason: null,
-        }
-      : {
-          downloadUrl: null,
-          downloadUnavailableReason: "Provider download unavailable",
         };
   }
 
@@ -386,7 +358,7 @@ function toThreadMessageRow(
 
   return {
     id: message.id,
-    platform: message.platform,
+    platform: "EMAIL",
     externalMessageId: message.externalMessageId,
     status: message.status,
     senderLabel,
@@ -493,7 +465,7 @@ function toConversationThread(
 
   return {
     conversationId: record.id,
-    platform: record.platform,
+    platform: "EMAIL",
     title: buildConversationTitle(record),
     participantSummary: formatParticipantSummary(record.platform, record.participants),
     subject: record.subject,
@@ -501,13 +473,14 @@ function toConversationThread(
     integrationStatus: record.integration.status,
     integrationLabel:
       record.integration.displayName ??
-      (record.platform === "EMAIL" ? "Gmail" : "Slack"),
+      "Gmail",
     lastActivityAt: buildLastActivityAt(record),
     assignedAgentLabel: buildAssignedAgentLabel(record),
     assignedAgent: record.assignedAgent?.isActive ? record.assignedAgent : null,
     enabledTriggerTypes,
     hasConfiguredTriggerRules,
     participants: record.participants,
+    facts: record.conversationFacts,
     messages: record.messages.map((message, index) =>
       toThreadMessageRow(
         message,
@@ -529,6 +502,7 @@ export async function getCurrentWorkspaceConversationThread(
     where: {
       id: conversationId,
       workspaceId: authContext.workspaceId,
+      platform: "EMAIL",
       deletedAt: null,
     },
     select: {
@@ -566,6 +540,17 @@ export async function getCurrentWorkspaceConversationThread(
           tone: true,
           escalationRulesJson: true,
           isActive: true,
+        },
+      },
+      conversationFacts: {
+        orderBy: [{ updatedAt: "desc" }],
+        take: 8,
+        select: {
+          id: true,
+          key: true,
+          valueText: true,
+          confidence: true,
+          updatedAt: true,
         },
       },
       messages: {

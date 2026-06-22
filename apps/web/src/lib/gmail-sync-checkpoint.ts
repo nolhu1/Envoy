@@ -76,6 +76,7 @@ export type GmailSyncCheckpoint = {
 
 export type GmailIntegrationMetadata = {
   provider: "gmail";
+  gmailLiveSyncEnabled?: boolean;
   gmailSyncCheckpoint?: GmailSyncCheckpoint;
   gmailWatch?: GmailWatchMetadata;
   [key: string]: unknown;
@@ -303,6 +304,14 @@ export function readGmailSyncCheckpoint(
   const checkpoint = readExistingCheckpoint(currentMetadata);
 
   return Object.keys(checkpoint).length > 0 ? checkpoint : null;
+}
+
+export function readGmailLiveSyncEnabled(currentMetadata: unknown) {
+  const metadata = isJsonObject(currentMetadata) ? currentMetadata : null;
+
+  return typeof metadata?.gmailLiveSyncEnabled === "boolean"
+    ? metadata.gmailLiveSyncEnabled
+    : true;
 }
 
 function readFailureCategory(value: unknown): GmailSyncFailureCategory | null {
@@ -695,6 +704,36 @@ export function buildGmailWatchMetadata(
           ? null
           : errorSummary ?? previousWatch.lastError ?? null,
     },
+  } satisfies GmailIntegrationMetadata;
+}
+
+export function buildGmailLiveSyncPreferenceMetadata(input: {
+  currentMetadata: unknown;
+  enabled: boolean;
+}) {
+  const metadata = toGmailMetadata(input.currentMetadata);
+  const previousWatch = readExistingGmailWatch(input.currentMetadata);
+
+  return {
+    ...metadata,
+    gmailLiveSyncEnabled: input.enabled,
+    gmailWatch: input.enabled
+      ? {
+          topicName: previousWatch.topicName ?? null,
+          historyId: previousWatch.historyId ?? null,
+          expiration: previousWatch.expiration ?? null,
+          lastRenewedAt: previousWatch.lastRenewedAt ?? null,
+          status: previousWatch.status ?? "NOT_CONFIGURED",
+          lastError: previousWatch.lastError ?? null,
+        }
+      : {
+          topicName: previousWatch.topicName ?? null,
+          historyId: previousWatch.historyId ?? null,
+          expiration: previousWatch.expiration ?? null,
+          lastRenewedAt: previousWatch.lastRenewedAt ?? null,
+          status: "STOPPED",
+          lastError: null,
+        },
   } satisfies GmailIntegrationMetadata;
 }
 

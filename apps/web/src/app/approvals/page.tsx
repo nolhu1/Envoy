@@ -122,7 +122,7 @@ export default async function ApprovalQueuePage({
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="platform">
-                        {row.conversation.platform === "SLACK" ? "Slack" : "Gmail"}
+                        Gmail
                       </Badge>
                       <StatusBadge domain="approval" status={row.status} />
                     </div>

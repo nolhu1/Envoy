@@ -237,7 +237,7 @@ export default async function ConversationThreadPage({
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="platform">
-            {thread.platform === "SLACK" ? "Slack" : "Gmail"}
+            Gmail
           </Badge>
           <StatusBadge domain="conversation" status={thread.conversationState} />
           <StatusBadge domain="integration" status={thread.integrationStatus} />
@@ -491,9 +491,52 @@ export default async function ConversationThreadPage({
       />
 
       <Panel>
+        <h2 className="text-base font-semibold text-slate-950">
+          Agent run history
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Review worker-backed runs, suppressions, failures, and model metadata
+          for this conversation.
+        </p>
+        <Link
+          href={`/agent-runs?conversationId=${thread.conversationId}`}
+          className="mt-3 inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 shadow-sm shadow-slate-950/5 hover:border-slate-400 hover:bg-slate-50"
+        >
+          Open runs
+        </Link>
+      </Panel>
+
+      <Panel>
+        <h2 className="text-base font-semibold text-slate-950">
+          Structured facts
+        </h2>
+        {thread.facts.length > 0 ? (
+          <dl className="mt-3 space-y-2 text-sm">
+            {thread.facts.map((fact) => (
+              <div key={fact.id} className="rounded-md border border-slate-200 p-2">
+                <dt className="font-medium text-slate-700">
+                  {fact.key.replaceAll("_", " ")}
+                </dt>
+                <dd className="mt-1 text-slate-600">{fact.valueText}</dd>
+                {fact.confidence == null ? null : (
+                  <dd className="mt-1 text-xs text-slate-500">
+                    Confidence {fact.confidence.toFixed(2)}
+                  </dd>
+                )}
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="mt-2 text-sm text-slate-600">
+            No structured facts have been recorded yet.
+          </p>
+        )}
+      </Panel>
+
+      <Panel>
         <h2 className="text-base font-semibold text-slate-950">Manual reply</h2>
         <p className="mt-1 text-sm leading-5 text-slate-600">
-          Send a plain text reply through the connected provider.
+          Send a plain text reply through Gmail.
         </p>
         <form action={sendManualReplyAction} className="mt-4 space-y-4">
           <input type="hidden" name="conversationId" value={thread.conversationId} />

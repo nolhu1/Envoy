@@ -1,6 +1,5 @@
 import {
   fetchGmailAttachmentBody,
-  fetchSlackPrivateFile,
 } from "@envoy/connectors";
 import {
   getPrisma,
@@ -42,38 +41,6 @@ function readGmailMessageId(input: {
   externalMessageId: string | null;
 }) {
   return readString(input.metadata.messageId) ?? input.externalMessageId;
-}
-
-function readSlackPrivateDownloadUrl(input: {
-  metadata: JsonObject;
-  externalUrl: string | null;
-}) {
-  const rawPayload = readMetadataObject(input.metadata.rawPayloadJson);
-  const privateUrl =
-    readString(rawPayload.url_private_download) ??
-    readString(rawPayload.url_private) ??
-    readString(input.metadata.url_private_download) ??
-    readString(input.metadata.url_private);
-  const externalUrl = readString(input.externalUrl);
-  const url =
-    privateUrl ??
-    (externalUrl?.includes("slack.com/files-pri/") ? externalUrl : null);
-
-  if (!url) {
-    return null;
-  }
-
-  try {
-    const parsed = new URL(url);
-
-    if (parsed.protocol !== "https:") {
-      return null;
-    }
-
-    return parsed.toString();
-  } catch {
-    return null;
-  }
 }
 
 function sanitizeDownloadFileName(fileName: string) {
@@ -149,6 +116,7 @@ export async function GET(
           deletedAt: null,
           integration: {
             workspaceId: authContext.workspaceId,
+            platform: "EMAIL",
             deletedAt: null,
           },
         },
@@ -227,32 +195,6 @@ export async function GET(
         fileName: attachment.fileName,
         mimeType: attachment.mimeType,
         contentLength: downloaded.size ?? attachment.sizeBytes,
-      });
-    }
-
-    if (attachment.platform === "SLACK") {
-      const slackUrl = readSlackPrivateDownloadUrl({
-        metadata,
-        externalUrl: attachment.externalUrl,
-      });
-
-      if (!slackUrl) {
-        return jsonResponse(
-          { ok: false, error: "slack_attachment_download_unsupported" },
-          { status: 501 },
-        );
-      }
-
-      const downloaded = await fetchSlackPrivateFile({
-        context: connectorContext,
-        url: slackUrl,
-      });
-
-      return createFileResponse({
-        data: downloaded.data,
-        fileName: attachment.fileName,
-        mimeType: attachment.mimeType ?? downloaded.contentType,
-        contentLength: downloaded.contentLength ?? attachment.sizeBytes,
       });
     }
   } catch (error) {
