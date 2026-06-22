@@ -8,7 +8,7 @@ WITH ranked AS (
   FROM "Integration"
   WHERE "deletedAt" IS NULL
     AND "status" <> 'DISCONNECTED'
-    AND "platform" IN ('EMAIL', 'SLACK')
+    AND "platform" IN ('EMAIL')
 )
 UPDATE "Integration"
 SET
@@ -30,4 +30,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS "Integration_one_active_platform_per_workspace
 ON "Integration" ("workspaceId", "platform")
 WHERE "deletedAt" IS NULL
   AND "status" <> 'DISCONNECTED'
-  AND "platform" IN ('EMAIL', 'SLACK');
+  AND "platform" IN ('EMAIL');

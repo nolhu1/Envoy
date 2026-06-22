@@ -9,7 +9,7 @@ import type {
 
 import { getPrisma } from "./client";
 
-type PrismaPlatform = "EMAIL" | "SLACK";
+type PrismaPlatform = "EMAIL";
 
 type WriterOptions = {
   workspaceId: string;

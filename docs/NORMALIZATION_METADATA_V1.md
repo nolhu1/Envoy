@@ -1,4 +1,4 @@
-# Envoy Normalization Metadata v1
+﻿# Envoy Normalization Metadata v1
 
 ## Purpose
 
@@ -73,7 +73,6 @@ May include:
 - labels
 - internal date
 
-#### Slack message raw payload
 May include:
 - event envelope
 - channel ID
@@ -127,7 +126,6 @@ Use for conversation-level provider context that is not canonical.
 - provider folder or mailbox hints
 - reply reference metadata
 
-#### Examples for Slack
 - channel ID
 - channel type
 - root thread timestamp
@@ -152,7 +150,6 @@ Use for the original source participant payload when available.
 - display name source
 - raw address object
 
-#### Examples for Slack
 - original user profile object
 - display name fields
 - team membership hints
@@ -166,7 +163,6 @@ Use for provider-specific participant details not worth elevating into core colu
 #### Examples
 - avatar URL
 - timezone
-- Slack username
 - email display formatting hints
 - provider role hints
 
@@ -192,7 +188,6 @@ Use it to store the original inbound or outbound provider message payload.
 - provider IDs
 - thread association details
 
-#### Slack examples
 - raw event payload
 - blocks
 - subtype
@@ -208,8 +203,6 @@ Use for normalized provider-specific details.
 #### Examples
 - reply-to references
 - header-derived thread hints
-- Slack subtype
-- Slack block summary
 - provider delivery metadata
 - normalized error detail for failed sends
 
@@ -307,7 +300,6 @@ It does not need to perfectly reproduce every external API object.
 
 Do not do any of these:
 
-1. Put Gmail-only or Slack-only fields directly on core tables unless they are genuinely canonical.
 2. Store huge raw payloads everywhere by default without purpose.
 3. Store auth secrets in raw or metadata JSON.
 4. Use metadata JSON as a substitute for proper schema design.

@@ -1,4 +1,4 @@
-# Envoy Core Platform
+﻿# Envoy Core Platform
 
 
 
@@ -16,7 +16,6 @@ The model is built around a normalized internal conversation layer so that multi
 
 For MVP, the supported source platforms are:
 - Email
-- Slack
 
 The model is designed so that:
 - both platforms map into the same `conversations` table
@@ -232,7 +231,6 @@ Key fields:
 
 ### Platform
 - `EMAIL`
-- `SLACK`
 
 ### IntegrationStatus
 - `PENDING`
@@ -318,12 +316,7 @@ Key fields:
 - plain text body -> `messages.body_text`
 - html body -> `messages.body_html`
 
-### Slack mapping
-- Slack DM or thread key -> `conversations.external_conversation_id`
 - no subject -> `conversations.subject = null`
-- Slack message ID or timestamp -> `messages.external_message_id`
-- Slack user ID -> `participants.external_participant_id`
-- Slack text -> `messages.body_text`
 
 ---
 
@@ -351,7 +344,6 @@ Phase C implementation includes:
 - Prisma schema v1
 - initial migration
 - generated Prisma client
-- seed script with email and Slack demo data
 - schema validation docs
 - model design docs
 
@@ -361,8 +353,6 @@ Phase C implementation includes:
 
 This data model is considered complete for MVP foundation when all of the following are true:
 
-- email and Slack both map into the same `conversations` model
-- email and Slack both map into the same `messages` model
 - no core table is provider-specific
 - AI draft approvals map through `approval_requests`
 - audit history maps through `action_logs`
@@ -622,7 +612,7 @@ This is a temporary MVP onboarding path and may later be replaced with a more ex
 An existing workspace admin can invite another user into the workspace.
 
 The invited user:
-- is created inside the inviter’s workspace
+- is created inside the inviterâ€™s workspace
 - receives one role on entry:
   - `ADMIN`
   - `MEMBER`
@@ -647,14 +637,14 @@ This rule applies to:
 
 ## Workspace Creation Paths
 
-### Path A — Direct sign-up
+### Path A â€” Direct sign-up
 1. user submits sign-up form
 2. system creates workspace
 3. system creates user linked to that workspace
 4. user becomes `ADMIN`
 5. session starts inside that workspace
 
-### Path B — Invite acceptance
+### Path B â€” Invite acceptance
 1. workspace admin creates invite
 2. invited user accepts invite
 3. system creates user inside inviter workspace
@@ -701,7 +691,6 @@ Integrations are always scoped to a workspace.
 
 That means:
 - a Gmail integration belongs to one workspace
-- a Slack integration belongs to one workspace
 - conversations imported through that integration belong to the same workspace
 
 A user from another workspace must never access or send through that integration.
@@ -751,7 +740,7 @@ This model is correct only if all of the following are true:
 This document defines the role-based access control policy for the Envoy MVP.
 
 Envoy is workspace-scoped.
-Permissions apply only within the user’s current workspace.
+Permissions apply only within the userâ€™s current workspace.
 
 RBAC decisions must be enforced in:
 - server-rendered pages
@@ -780,7 +769,7 @@ A role check is never enough by itself.
 
 A user may perform an action only if both are true:
 1. the resource belongs to `session.user.workspaceId`
-2. the user’s role permits the action
+2. the userâ€™s role permits the action
 
 ---
 
@@ -789,7 +778,6 @@ A user may perform an action only if both are true:
 ### 1. Connect integrations
 Description:
 - connect Gmail
-- connect Slack
 - disconnect integrations
 - resync integrations
 - view integration management settings
@@ -923,20 +911,20 @@ Allowed roles:
 
 ## Enforcement Rules
 
-### Rule 1 — Workspace boundary first
+### Rule 1 â€” Workspace boundary first
 Before any role check, confirm the current user belongs to the same workspace as the resource.
 
-### Rule 2 — Server-side enforcement required
+### Rule 2 â€” Server-side enforcement required
 RBAC must be enforced on the server.
 UI hiding is not sufficient.
 
-### Rule 3 — Deny by default
+### Rule 3 â€” Deny by default
 If an action is not explicitly allowed for a role, deny it.
 
-### Rule 4 — Viewer is read-only
+### Rule 4 â€” Viewer is read-only
 VIEWER must not be able to mutate workspace data.
 
-### Rule 5 — Admin-only workspace management
+### Rule 5 â€” Admin-only workspace management
 Workspace-level management actions are admin-only in MVP.
 
 ---
@@ -994,7 +982,6 @@ This document defines the lifecycle contract for connector integrations in the E
 
 An integration represents a connected provider account or installation inside a workspace, such as:
 - a Gmail account
-- a Slack workspace/app installation
 
 The lifecycle contract exists so that:
 - all connectors follow the same status model
@@ -1256,23 +1243,23 @@ Use `status`.
 
 ## Lifecycle Rules
 
-### Rule 1 — Workspace boundary first
-Any lifecycle operation must be executed only within the integration’s owning workspace.
+### Rule 1 â€” Workspace boundary first
+Any lifecycle operation must be executed only within the integrationâ€™s owning workspace.
 
-### Rule 2 — Status drives operational eligibility
+### Rule 2 â€” Status drives operational eligibility
 Inbound sync, webhook processing, and outbound send behavior must check integration status before proceeding.
 
-### Rule 3 — Error is explicit
+### Rule 3 â€” Error is explicit
 If the integration is unhealthy, status must reflect that.
 Do not hide failures inside metadata only.
 
-### Rule 4 — Disconnect preserves history
+### Rule 4 â€” Disconnect preserves history
 Disconnecting an integration must not delete historical conversations or messages already normalized into Envoy.
 
-### Rule 5 — Sync state is operational, not ownership-related
+### Rule 5 â€” Sync state is operational, not ownership-related
 `SYNC_IN_PROGRESS` reflects connector activity, not a different tenancy or permission model.
 
-### Rule 6 — Secret material stays outside metadata JSON
+### Rule 6 â€” Secret material stays outside metadata JSON
 Lifecycle state may reference secret storage indirectly, but tokens and secrets must not be stored in `platform_metadata_json`.
 
 ---
@@ -1301,19 +1288,19 @@ Lifecycle state may reference secret storage indirectly, but tokens and secrets 
 The product UI should be able to represent integrations consistently using this lifecycle:
 
 ### PENDING
-- “Connecting” or “Setup in progress”
+- â€œConnectingâ€ or â€œSetup in progressâ€
 
 ### CONNECTED
-- “Connected”
+- â€œConnectedâ€
 
 ### SYNC_IN_PROGRESS
-- “Syncing”
+- â€œSyncingâ€
 
 ### ERROR
-- “Needs attention” or “Connection error”
+- â€œNeeds attentionâ€ or â€œConnection errorâ€
 
 ### DISCONNECTED
-- “Disconnected”
+- â€œDisconnectedâ€
 
 The UI should not need provider-specific logic just to understand connector health.
 
@@ -1325,7 +1312,6 @@ The lifecycle contract is correct only if all of the following are true:
 
 1. Every integration fits one shared status model.
 2. Gmail can use this lifecycle without needing Gmail-only status values.
-3. Slack can use this lifecycle without needing Slack-only status values.
 4. The UI can represent connector health from the shared status field.
 5. A connector can fail auth, recover, sync, and disconnect without changing core conversation logic.
 
@@ -1401,7 +1387,6 @@ Typical fields:
 
 Examples:
 - Gmail OAuth
-- Slack OAuth
 
 ### Static API credentials
 Typical fields:
@@ -1431,7 +1416,7 @@ The `integrations` table is the canonical integration owner and should store non
 - `auth_type`
 - `last_synced_at`
 - `config_json`
-- `platform_metadata_json`  [oai_citation:1‡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
+- `platform_metadata_json`  [oai_citation:1â€¡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
 
 ### What belongs in config_json
 Only non-secret product-relevant connector configuration.
@@ -1554,7 +1539,6 @@ Rotation means replacing current credential material without changing workspace 
 
 Examples:
 - user reconnects Google account
-- user re-installs Slack app
 - API key is replaced
 
 ### Rotation rules
@@ -1569,7 +1553,7 @@ Reconnect may transition integration state from:
 - `ERROR -> CONNECTED`
 - `DISCONNECTED -> PENDING`
 - `DISCONNECTED -> CONNECTED`
-depending on provider flow and lifecycle rules  [oai_citation:2‡INTEGRATION_LIFECYCLE_V1.md](sediment://file_00000000686c71f896a517665a3a02c6)
+depending on provider flow and lifecycle rules  [oai_citation:2â€¡INTEGRATION_LIFECYCLE_V1.md](sediment://file_00000000686c71f896a517665a3a02c6)
 
 ---
 
@@ -1579,7 +1563,6 @@ Connector-specific config is allowed, but it must remain non-secret.
 
 Examples:
 - Gmail import label filters
-- Slack selected channel scope mode
 - webhook enabled flag
 - sync window size
 - backfill enabled flag
@@ -1644,7 +1627,7 @@ Do not do any of these:
 1. Store access tokens in `platform_metadata_json`.
 2. Store refresh tokens in `config_json`.
 3. Make connectors fetch tokens directly from business tables.
-4. Hardcode one provider’s token shape into shared framework code.
+4. Hardcode one providerâ€™s token shape into shared framework code.
 5. Mix token refresh logic into unrelated normalization code.
 6. Replace integrations by deleting and recreating them when simple reconnect or rotation should suffice.
 
@@ -1655,7 +1638,6 @@ Do not do any of these:
 The credential handling contract is correct only if all of the following are true:
 
 1. Gmail OAuth can be supported without storing tokens in canonical metadata.
-2. Slack OAuth can be supported without storing tokens in canonical metadata.
 3. Connectors can receive resolved auth material through shared runtime context.
 4. Credential refresh can update auth material without changing core conversation logic.
 5. Reconnect or rotation can recover an integration without deleting historical data.
@@ -1678,7 +1660,6 @@ The connector interface exists so that:
 
 This interface applies to initial MVP connectors:
 - Email
-- Slack
 
 It should also be reusable for future connectors.
 
@@ -2003,7 +1984,7 @@ Use canonical fields such as:
 - `subject`
 - `state`
 - `last_message_at`
-- `platform_metadata_json`  [oai_citation:7‡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
+- `platform_metadata_json`  [oai_citation:7â€¡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
 
 ### Messages
 Use canonical fields such as:
@@ -2045,7 +2026,6 @@ Those are covered in later framework steps.
 The connector interface is correct only if all of the following are true:
 
 1. Gmail can implement it without changing core conversation logic.
-2. Slack can implement it without changing core conversation logic.
 3. Inbound webhooks and historical sync can both feed the same standard ingestion pipeline.
 4. Outbound sends can feed one standard send pipeline.
 5. Provider-specific data can be preserved without polluting the canonical model.
@@ -2126,7 +2106,7 @@ Use canonical uniqueness anchored on:
 - canonical conversation
 - `externalMessageId`
 
-Canonical message uniqueness already exists as part of the message model and prevents duplicate ingestion of the same provider message inside one canonical conversation.  [oai_citation:2‡MESSAGE_MODEL_V1.md](sediment://file_00000000732471f5b948eca0d7faeef1)
+Canonical message uniqueness already exists as part of the message model and prevents duplicate ingestion of the same provider message inside one canonical conversation.  [oai_citation:2â€¡MESSAGE_MODEL_V1.md](sediment://file_00000000732471f5b948eca0d7faeef1)
 
 ### 3. Ingestion fingerprint
 Use a deterministic hash when the provider does not give a stable external event id.
@@ -2208,7 +2188,7 @@ If an outbound operation for the same logical message is already in progress or 
 If a send attempt is retried after ambiguous failure:
 - repeated execution should converge on one final canonical result
 - canonical status should not oscillate unpredictably
-- audit should remain traceable without duplicate “success” semantics
+- audit should remain traceable without duplicate â€œsuccessâ€ semantics
 
 ---
 
@@ -2369,8 +2349,8 @@ The shared connector framework is responsible for:
 
 The idempotency contract is correct only if all of the following are true:
 
-1. Duplicate webhook deliveries do not create duplicate canonical messages.  [oai_citation:3‡INBOUND_INGESTION_PIPELINE_V1.md](sediment://file_00000000a62c71f5b722d6452a2b6129)
-2. Repeated sync ingestion converges on the same canonical message state.  [oai_citation:4‡INBOUND_INGESTION_PIPELINE_V1.md](sediment://file_00000000a62c71f5b722d6452a2b6129)
-3. Repeated outbound send attempts for one canonical message do not create uncontrolled duplicate sends.  [oai_citation:5‡OUTBOUND_SENDING_PIPELINE_V1.md](sediment://file_0000000002fc71fd863506f91d67515f)
+1. Duplicate webhook deliveries do not create duplicate canonical messages.  [oai_citation:3â€¡INBOUND_INGESTION_PIPELINE_V1.md](sediment://file_00000000a62c71f5b722d6452a2b6129)
+2. Repeated sync ingestion converges on the same canonical message state.  [oai_citation:4â€¡INBOUND_INGESTION_PIPELINE_V1.md](sediment://file_00000000a62c71f5b722d6452a2b6129)
+3. Repeated outbound send attempts for one canonical message do not create uncontrolled duplicate sends.  [oai_citation:5â€¡OUTBOUND_SENDING_PIPELINE_V1.md](sediment://file_0000000002fc71fd863506f91d67515f)
 4. Provider idempotency support can be used without replacing internal Envoy idempotency.
 5. The framework can later add a dedicated idempotency store without redesigning connector contracts.

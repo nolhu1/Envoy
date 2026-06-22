@@ -1,4 +1,4 @@
-# Envoy Gmail Attachment Handling v1
+﻿# Envoy Gmail Attachment Handling v1
 
 ## Purpose
 
@@ -66,7 +66,7 @@ For Gmail MVP:
 - `external_url` may remain null if Gmail does not expose a stable direct file URL for safe reuse
 - the core value is canonical metadata plus provider attachment identifiers
 
-This keeps the canonical model platform-agnostic.  [oai_citation:5‡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
+This keeps the canonical model platform-agnostic.  [oai_citation:5â€¡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
 
 ---
 
@@ -87,7 +87,7 @@ Do not add Gmail-only fields like:
 - Gmail MIME part tree details
 - Gmail-only preview fields as core columns
 
-Use `platform_metadata_json` instead.  [oai_citation:6‡NORMALIZATION_METADATA_V1.md](sediment://file_000000009ff071f5b80b24106066bd63)
+Use `platform_metadata_json` instead.  [oai_citation:6â€¡NORMALIZATION_METADATA_V1.md](sediment://file_000000009ff071f5b80b24106066bd63)
 
 ---
 
@@ -138,7 +138,7 @@ This stays aligned with the shared inbound pipeline and idempotency rules.
 ## Security Rules
 
 ### Workspace boundary
-A user may only access attachment data where the parent resource belongs to the current workspace.  [oai_citation:7‡WORKSPACE_MODEL_V1.md](sediment://file_00000000376c722f9d3755c3e196f5a5)
+A user may only access attachment data where the parent resource belongs to the current workspace.  [oai_citation:7â€¡WORKSPACE_MODEL_V1.md](sediment://file_00000000376c722f9d3755c3e196f5a5)
 
 ### Secret boundary
 Attachment metadata must never contain:
@@ -162,7 +162,6 @@ Do not build these in the first Gmail attachment step:
 - preview thumbnails
 - cross-thread attachment library
 - content indexing
-- Slack attachment unification beyond the shared canonical model
 
 ---
 

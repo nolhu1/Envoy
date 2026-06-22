@@ -1,4 +1,4 @@
-# Frontend Design Foundation
+﻿# Frontend Design Foundation
 
 Source audit: `docs/frontend/FRONTEND_GAP_AUDIT.md`.
 
@@ -551,7 +551,6 @@ Badges must be consistent and semantic.
 | Success badge | `bg-emerald-50 text-emerald-800 border border-emerald-200` | Connected, sent, approved. |
 | Warning badge | `bg-amber-50 text-amber-900 border border-amber-200` | Awaiting approval, reconnect required, pending. |
 | Critical badge | `bg-red-50 text-red-800 border border-red-200` | Failed, blocked, rejected when active risk. |
-| Platform badge | `bg-white text-slate-600 border border-slate-200` plus optional provider icon later | Gmail/Slack source metadata. |
 
 Default badge classes:
 

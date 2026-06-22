@@ -1,4 +1,4 @@
-# Envoy Inbound Ingestion Pipeline v1
+﻿# Envoy Inbound Ingestion Pipeline v1
 
 ## Purpose
 
@@ -61,7 +61,6 @@ Purpose:
 - extract the provider event or message data into a connector-understood internal shape
 
 Examples:
-- Slack event payload parsing
 - Gmail history record parsing
 - provider-specific thread/message extraction
 

@@ -59,7 +59,7 @@ export type AgentContextAssignment = {
 export type AgentConversationContext = {
   workspaceId: string;
   conversationId: string;
-  platform: "EMAIL" | "SLACK";
+  platform: "EMAIL";
   state: string;
   subject: string | null;
   assignedAgentId: string | null;
@@ -96,6 +96,7 @@ export async function buildAgentConversationContext(
     where: {
       id: input.conversationId,
       workspaceId: input.workspaceId,
+      platform: "EMAIL",
       deletedAt: null,
     },
     select: {
@@ -200,7 +201,7 @@ export async function buildAgentConversationContext(
   return {
     workspaceId: conversation.workspaceId,
     conversationId: conversation.id,
-    platform: conversation.platform,
+    platform: "EMAIL",
     state: conversation.state,
     subject: conversation.subject,
     assignedAgentId: conversation.assignedAgentId,

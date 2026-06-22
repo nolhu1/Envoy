@@ -1,4 +1,4 @@
-# Envoy Connector Interface v1
+﻿# Envoy Connector Interface v1
 
 ## Purpose
 
@@ -12,7 +12,6 @@ The connector interface exists so that:
 
 This interface applies to initial MVP connectors:
 - Email
-- Slack
 
 It should also be reusable for future connectors.
 
@@ -337,7 +336,7 @@ Use canonical fields such as:
 - `subject`
 - `state`
 - `last_message_at`
-- `platform_metadata_json`  [oai_citation:7‡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
+- `platform_metadata_json`  [oai_citation:7â€¡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
 
 ### Messages
 Use canonical fields such as:
@@ -379,7 +378,6 @@ Those are covered in later framework steps.
 The connector interface is correct only if all of the following are true:
 
 1. Gmail can implement it without changing core conversation logic.
-2. Slack can implement it without changing core conversation logic.
 3. Inbound webhooks and historical sync can both feed the same standard ingestion pipeline.
 4. Outbound sends can feed one standard send pipeline.
 5. Provider-specific data can be preserved without polluting the canonical model.

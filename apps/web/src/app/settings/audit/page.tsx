@@ -65,7 +65,6 @@ export default async function WorkspaceAuditPage({
     actorType: readSearchParam(params?.actorType),
     actionType: readSearchParam(params?.actionType),
     resourceType: readSearchParam(params?.resourceType),
-    platform: readSearchParam(params?.platform),
     conversationId: readSearchParam(params?.conversationId),
     approvalRequestId: readSearchParam(params?.approvalRequestId),
     status: readSearchParam(params?.status),
@@ -98,9 +97,6 @@ export default async function WorkspaceAuditPage({
               </FilterField>
               <FilterField label="Resource">
                 <Input name="resourceType" defaultValue={filters.resourceType ?? ""} placeholder="message" />
-              </FilterField>
-              <FilterField label="Platform">
-                <Input name="platform" defaultValue={filters.platform ?? ""} placeholder="EMAIL or SLACK" />
               </FilterField>
               <FilterField label="Conversation">
                 <Input name="conversationId" defaultValue={filters.conversationId ?? ""} />

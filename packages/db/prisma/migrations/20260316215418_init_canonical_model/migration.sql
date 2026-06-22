@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "Platform" AS ENUM ('EMAIL', 'SLACK');
+CREATE TYPE "Platform" AS ENUM ('EMAIL');
 
 -- CreateEnum
 CREATE TYPE "IntegrationStatus" AS ENUM ('PENDING', 'CONNECTED', 'SYNCING', 'ERROR', 'DISCONNECTED');

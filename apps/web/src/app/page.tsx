@@ -43,7 +43,6 @@ function formatTimestamp(value: Date) {
 function hasActiveFilters(filters: ReturnType<typeof readInboxFilters>) {
   return (
     filters.query !== "" ||
-    filters.platform !== "ALL" ||
     filters.state !== "ALL" ||
     filters.assigneeId !== "ALL" ||
     filters.agent !== "any" ||
@@ -60,14 +59,6 @@ function buildActiveFilters(
 
   if (filters.query) {
     activeFilters.push({ key: "q", label: "Search", value: filters.query });
-  }
-
-  if (filters.platform !== "ALL") {
-    activeFilters.push({
-      key: "platform",
-      label: "Platform",
-      value: filters.platform === "EMAIL" ? "Gmail" : "Slack",
-    });
   }
 
   if (filters.state !== "ALL") {
@@ -152,7 +143,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       <PageContainer width="wide">
         <PageHeader
           title="Inbox"
-          description="Triage canonical Gmail and Slack conversations across the workspace."
+          description="Triage canonical Gmail conversations across the workspace."
         />
 
         <QueueContainer
@@ -173,17 +164,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 />
               </FilterField>
               <input type="hidden" name="page" value="1" />
-              <FilterField label="Platform">
-                <Select
-                  name="platform"
-                  defaultValue={filters.platform}
-                  options={[
-                    { value: "ALL", label: "All platforms" },
-                    { value: "EMAIL", label: "Gmail" },
-                    { value: "SLACK", label: "Slack" },
-                  ]}
-                />
-              </FilterField>
               <FilterField label="State">
                 <Select
                   name="state"
@@ -267,7 +247,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="platform">
-                        {row.platform === "SLACK" ? "Slack" : "Gmail"}
+                        Gmail
                       </Badge>
                       <StatusBadge
                         domain="conversation"

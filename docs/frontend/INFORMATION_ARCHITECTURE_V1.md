@@ -1,4 +1,4 @@
-# Information Architecture V1
+﻿# Information Architecture V1
 
 Source documents:
 
@@ -109,7 +109,6 @@ Top-level sections:
 
 ### Inbox
 
-Purpose: unified operational queue for Gmail and Slack conversations.
 
 Primary user task: triage conversations, inspect current status, open threads, and identify items needing response, assignment, or approval.
 
@@ -153,7 +152,6 @@ Default route: `/audit`
 
 | Route | Page type | Purpose |
 | --- | --- | --- |
-| `/` | Queue | Unified inbox queue across Gmail and Slack. |
 | `/conversations/[id]` | Detail | Conversation thread with messages, assignment state, manual reply, agent controls, approvals/send diagnostics, and audit timeline. |
 
 ### Approvals
@@ -177,7 +175,6 @@ The top-level `/members` page remains because member management is a frequent ad
 | Route | Page type | Purpose |
 | --- | --- | --- |
 | `/settings/workspace` | Settings form | Workspace profile, basic workspace metadata, and safe workspace-level configuration. |
-| `/settings/integrations` | Settings/admin tool | Gmail and Slack connection state, reconnect, sync, disconnect, connector diagnostics, and integration operation entry points. |
 | `/settings/members` | Settings redirect or scoped view | Entry point from settings to member/role management. Prefer redirecting to `/members` unless a settings-specific permissions view is needed. |
 | `/settings/agent-policies` | Future settings form | Workspace-level agent policy defaults, assignment constraints, and trigger policy. |
 | `/settings/security` | Future settings form | Authentication, session, role, and sensitive operation policy. |

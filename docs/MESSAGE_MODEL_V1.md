@@ -1,10 +1,9 @@
-# Envoy Message Model v1
+﻿# Envoy Message Model v1
 
 ## Purpose
 
 The `messages` table represents the internal normalized message model for Envoy.
 
-It is not a direct copy of a Gmail message object or a Slack message event.
 It is the canonical message record used by:
 - thread rendering
 - inbound ingestion
@@ -15,7 +14,6 @@ It is the canonical message record used by:
 
 A message must be able to represent both:
 - an email message
-- a Slack message
 
 without changing the core schema.
 
@@ -48,14 +46,12 @@ without changing the core schema.
 - Type: enum
 - Expected values for MVP:
   - `EMAIL`
-  - `SLACK`
 
 ### external_message_id
 - Type: string
 - Provider-native message identifier
 - Examples:
   - Gmail message ID
-  - Slack message timestamp or normalized message key
 
 ### sender_participant_id
 - Type: UUID nullable
@@ -191,16 +187,9 @@ Map email messages like this:
 - provider send time -> `sent_at`
 - platform -> `EMAIL`
 
-### Slack
-Map Slack messages like this:
-- Slack message timestamp or normalized message key -> `external_message_id`
-- Slack user -> `sender_participant_id`
 - inbound DM from outside actor -> `direction = INBOUND`
 - outbound Envoy reply -> `direction = OUTBOUND`
-- Slack text -> `body_text`
 - no HTML required -> `body_html = null`
-- Slack event timestamp -> `received_at` or normalized event time
-- platform -> `SLACK`
 
 ---
 
@@ -211,7 +200,6 @@ Use when the message comes into Envoy from the outside platform.
 
 Examples:
 - external email received
-- Slack DM received
 
 ### OUTBOUND
 Use when a human user or approved AI draft is sent out through a connected integration.
@@ -262,7 +250,6 @@ Outbound send failed.
 The `messages` table must not:
 - store provider auth data
 - store attachment binaries directly
-- contain email-only or Slack-only first-class columns unless they are truly canonical
 - become a dumping ground for connector-specific fields
 
 If a field is useful only for one platform and not needed for cross-platform workflow behavior, put it in `platform_metadata_json`.
@@ -274,6 +261,5 @@ If a field is useful only for one platform and not needed for cross-platform wor
 This model is correct only if both of these are true:
 
 1. An email message with both plain text and HTML can be stored without adding email-only core columns beyond normalized metadata.
-2. A Slack message can be stored without adding Slack-only core columns beyond normalized metadata.
 
 If either platform requires a separate core message table, the model has failed.

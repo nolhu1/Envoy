@@ -1,4 +1,4 @@
-# Envoy Gmail Docs
+﻿# Envoy Gmail Docs
 
 
 
@@ -12,7 +12,6 @@
 
 This document locks the first real email connector scope for the Envoy MVP.
 
-Envoy will ship email before Slack.
 For MVP, Envoy will support one concrete email provider path first:
 - Gmail API only
 
@@ -289,8 +288,8 @@ This follows the MVP RBAC policy for integration management.
 
 ## Connect Flow Overview
 
-### Step 1 — Start connect
-A workspace admin clicks “Connect Gmail” inside Envoy.
+### Step 1 â€” Start connect
+A workspace admin clicks â€œConnect Gmailâ€ inside Envoy.
 
 System responsibilities:
 - confirm the user is authenticated
@@ -299,10 +298,10 @@ System responsibilities:
 - generate OAuth state tied to the workspace and user
 - redirect to Google OAuth consent
 
-### Step 2 — Google consent
+### Step 2 â€” Google consent
 The user authorizes the Gmail integration with the requested scopes.
 
-### Step 3 — OAuth callback
+### Step 3 â€” OAuth callback
 Envoy receives the callback with:
 - authorization code
 - state
@@ -1172,7 +1171,7 @@ For Gmail MVP:
 - `external_url` may remain null if Gmail does not expose a stable direct file URL for safe reuse
 - the core value is canonical metadata plus provider attachment identifiers
 
-This keeps the canonical model platform-agnostic.  [oai_citation:5‡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
+This keeps the canonical model platform-agnostic.  [oai_citation:5â€¡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
 
 ---
 
@@ -1193,7 +1192,7 @@ Do not add Gmail-only fields like:
 - Gmail MIME part tree details
 - Gmail-only preview fields as core columns
 
-Use `platform_metadata_json` instead.  [oai_citation:6‡NORMALIZATION_METADATA_V1.md](sediment://file_000000009ff071f5b80b24106066bd63)
+Use `platform_metadata_json` instead.  [oai_citation:6â€¡NORMALIZATION_METADATA_V1.md](sediment://file_000000009ff071f5b80b24106066bd63)
 
 ---
 
@@ -1244,7 +1243,7 @@ This stays aligned with the shared inbound pipeline and idempotency rules.
 ## Security Rules
 
 ### Workspace boundary
-A user may only access attachment data where the parent resource belongs to the current workspace.  [oai_citation:7‡WORKSPACE_MODEL_V1.md](sediment://file_00000000376c722f9d3755c3e196f5a5)
+A user may only access attachment data where the parent resource belongs to the current workspace.  [oai_citation:7â€¡WORKSPACE_MODEL_V1.md](sediment://file_00000000376c722f9d3755c3e196f5a5)
 
 ### Secret boundary
 Attachment metadata must never contain:
@@ -1268,7 +1267,6 @@ Do not build these in the first Gmail attachment step:
 - preview thumbnails
 - cross-thread attachment library
 - content indexing
-- Slack attachment unification beyond the shared canonical model
 
 ---
 
@@ -1477,7 +1475,7 @@ AI sends must remain traceable to:
 - approval request
 - acting user or system actor
 
-This follows the audit and approval design rules.  [oai_citation:4‡AGENT_TABLES_V1.md](sediment://file_0000000024d471f5b5200b44aed2c6a7)
+This follows the audit and approval design rules.  [oai_citation:4â€¡AGENT_TABLES_V1.md](sediment://file_0000000024d471f5b5200b44aed2c6a7)
 
 ---
 
@@ -1511,7 +1509,7 @@ That means:
 - if Gmail supports idempotency-like protection, it is additive
 - repeated send attempts must not create uncontrolled duplicate Gmail messages
 
-This follows the shared idempotency contract.  [oai_citation:5‡IDEMPOTENCY_CONTRACT_V1.md](sediment://file_00000000114871fdbe5f058f9931bf27)
+This follows the shared idempotency contract.  [oai_citation:5â€¡IDEMPOTENCY_CONTRACT_V1.md](sediment://file_00000000114871fdbe5f058f9931bf27)
 
 ---
 

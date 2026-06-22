@@ -13,7 +13,6 @@ datasource db {
 
 enum Platform {
   EMAIL
-  SLACK
 }
 
 enum IntegrationStatus {

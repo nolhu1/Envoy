@@ -1,4 +1,4 @@
-# Production Security Baseline
+﻿# Production Security Baseline
 
 ## Startup Checks
 
@@ -13,7 +13,6 @@ Lightweight in-memory rate limits protect:
 - Credentials login.
 - NextAuth callback POSTs.
 - Password reset requests.
-- Slack Events API route.
 - Gmail Pub/Sub route.
 - Connector reconnect actions.
 - Manual sync, manual send, Gmail watch renewal, and manual agent run actions.

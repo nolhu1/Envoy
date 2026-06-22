@@ -1,4 +1,4 @@
-# Envoy Credential Handling v1
+﻿# Envoy Credential Handling v1
 
 ## Purpose
 
@@ -66,7 +66,6 @@ Typical fields:
 
 Examples:
 - Gmail OAuth
-- Slack OAuth
 
 ### Static API credentials
 Typical fields:
@@ -96,7 +95,7 @@ The `integrations` table is the canonical integration owner and should store non
 - `auth_type`
 - `last_synced_at`
 - `config_json`
-- `platform_metadata_json`  [oai_citation:1‡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
+- `platform_metadata_json`  [oai_citation:1â€¡DATA_MODEL_V1.md](sediment://file_00000000eb44722f911c7913e2821476)
 
 ### What belongs in config_json
 Only non-secret product-relevant connector configuration.
@@ -219,7 +218,6 @@ Rotation means replacing current credential material without changing workspace 
 
 Examples:
 - user reconnects Google account
-- user re-installs Slack app
 - API key is replaced
 
 ### Rotation rules
@@ -234,7 +232,7 @@ Reconnect may transition integration state from:
 - `ERROR -> CONNECTED`
 - `DISCONNECTED -> PENDING`
 - `DISCONNECTED -> CONNECTED`
-depending on provider flow and lifecycle rules  [oai_citation:2‡INTEGRATION_LIFECYCLE_V1.md](sediment://file_00000000686c71f896a517665a3a02c6)
+depending on provider flow and lifecycle rules  [oai_citation:2â€¡INTEGRATION_LIFECYCLE_V1.md](sediment://file_00000000686c71f896a517665a3a02c6)
 
 ---
 
@@ -244,7 +242,6 @@ Connector-specific config is allowed, but it must remain non-secret.
 
 Examples:
 - Gmail import label filters
-- Slack selected channel scope mode
 - webhook enabled flag
 - sync window size
 - backfill enabled flag
@@ -309,7 +306,7 @@ Do not do any of these:
 1. Store access tokens in `platform_metadata_json`.
 2. Store refresh tokens in `config_json`.
 3. Make connectors fetch tokens directly from business tables.
-4. Hardcode one provider’s token shape into shared framework code.
+4. Hardcode one providerâ€™s token shape into shared framework code.
 5. Mix token refresh logic into unrelated normalization code.
 6. Replace integrations by deleting and recreating them when simple reconnect or rotation should suffice.
 
@@ -320,7 +317,6 @@ Do not do any of these:
 The credential handling contract is correct only if all of the following are true:
 
 1. Gmail OAuth can be supported without storing tokens in canonical metadata.
-2. Slack OAuth can be supported without storing tokens in canonical metadata.
 3. Connectors can receive resolved auth material through shared runtime context.
 4. Credential refresh can update auth material without changing core conversation logic.
 5. Reconnect or rotation can recover an integration without deleting historical data.

@@ -33,7 +33,7 @@ export type OperatorAuditRow = {
   actionOrEventType: string;
   resourceType: string | null;
   resourceId: string | null;
-  platform: "EMAIL" | "SLACK" | null;
+  platform: "EMAIL" | null;
   status: string | null;
   severity: "critical" | "warning" | "success" | "info" | "neutral";
   conversationId: string | null;
@@ -48,10 +48,10 @@ export type OperatorAuditRow = {
 
 function normalizePlatform(
   value: string | null | undefined,
-): "EMAIL" | "SLACK" | null {
+): "EMAIL" | null {
   const normalized = value?.toUpperCase();
 
-  return normalized === "EMAIL" || normalized === "SLACK" ? normalized : null;
+  return normalized === "EMAIL" ? normalized : null;
 }
 
 function normalizeDateRange(filters: AuditLogReaderFilters) {
@@ -139,7 +139,7 @@ export async function listOperatorAuditRows(input: {
           readOperatorString(filters.approvalRequestId) ?? undefined,
         createdAt:
           dateRange.gte || dateRange.lte ? dateRange : undefined,
-        conversation: platform ? { platform } : undefined,
+        conversation: { platform: platform ?? "EMAIL" },
       },
       orderBy: [{ createdAt: "desc" }],
       take: limit,
@@ -208,7 +208,7 @@ export async function listOperatorAuditRows(input: {
         actionOrEventType: row.actionType,
         resourceType: "conversation",
         resourceId: row.conversationId,
-        platform: row.conversation.platform,
+        platform: "EMAIL",
         status: null,
         severity: "neutral" as const,
         conversationId: row.conversationId,
@@ -225,6 +225,7 @@ export async function listOperatorAuditRows(input: {
     }),
     ...events.map((row) => {
       const payload = sanitizeOperatorMetadata(row.payloadJson);
+      const rawPlatform = readPayloadString(payload, "platform")?.toUpperCase();
       const metadata = sanitizeOperatorMetadata(row.metadataJson);
       const messageId =
         readPayloadString(payload, "messageId") ??
@@ -245,7 +246,7 @@ export async function listOperatorAuditRows(input: {
         actionOrEventType: row.eventType,
         resourceType: row.entityType,
         resourceId: row.entityId,
-        platform: normalizePlatform(readPayloadString(payload, "platform")),
+        platform: normalizePlatform(rawPlatform),
         status: row.status,
         severity: statusSeverity(row.status),
         conversationId:
@@ -272,6 +273,21 @@ export async function listOperatorAuditRows(input: {
     .filter((row) => {
       if (platform && row.platform !== platform) {
         return false;
+      }
+
+      if (
+        row.metadataJson.payload &&
+        typeof row.metadataJson.payload === "object" &&
+        !Array.isArray(row.metadataJson.payload)
+      ) {
+        const payloadPlatform = readPayloadString(
+          row.metadataJson.payload,
+          "platform",
+        )?.toUpperCase();
+
+        if (payloadPlatform && payloadPlatform !== "EMAIL") {
+          return false;
+        }
       }
 
       if (

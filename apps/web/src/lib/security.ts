@@ -20,7 +20,6 @@ const SENSITIVE_KEY_PATTERNS = [
   "authmaterial",
   "bearer",
   "openai",
-  "slacksigningsecret",
   "refresh",
 ] as const;
 

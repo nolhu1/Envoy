@@ -1,10 +1,9 @@
-# Envoy Conversation Model v1
+﻿# Envoy Conversation Model v1
 
 ## Purpose
 
 The `conversations` table represents the internal normalized thread model for Envoy.
 
-It is not a direct copy of a Gmail thread, Slack thread, or any other platform-native object.
 It is the canonical conversation container used by:
 - inbox listing
 - thread rendering
@@ -16,7 +15,6 @@ It is the canonical conversation container used by:
 
 A conversation must be able to represent both:
 - an email thread
-- a Slack DM or Slack thread
 
 without changing the core schema.
 
@@ -49,7 +47,6 @@ without changing the core schema.
 - Type: enum
 - Expected values for MVP:
   - `EMAIL`
-  - `SLACK`
 - Required because normalization still needs to preserve source platform identity
 
 ### external_conversation_id
@@ -57,12 +54,10 @@ without changing the core schema.
 - The provider-native thread identifier
 - Examples:
   - Gmail thread ID
-  - Slack DM thread key or channel-thread composite key
 
 ### subject
 - Type: string nullable
 - Present for email threads
-- Nullable for Slack conversations that do not have a subject
 
 ### state
 - Type: enum
@@ -170,13 +165,8 @@ Map email threads like this:
 - source integration -> `integration_id`
 - platform -> `EMAIL`
 
-### Slack
-Map Slack conversations like this:
-- Slack DM thread key or channel-thread composite key -> `external_conversation_id`
 - no subject -> `subject = null`
-- latest Slack message timestamp -> `last_message_at`
 - source integration -> `integration_id`
-- platform -> `SLACK`
 
 ---
 
@@ -197,6 +187,5 @@ If a field is only useful for one platform and not needed for normalized workflo
 This model is correct only if both of these are true:
 
 1. A Gmail thread can be stored without adding email-only core columns beyond normalized metadata.
-2. A Slack DM or Slack thread can be stored without adding Slack-only core columns beyond normalized metadata.
 
 If either platform requires a separate core conversation table, the model has failed.

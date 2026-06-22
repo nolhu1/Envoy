@@ -8,7 +8,7 @@ import {
   formatParticipantSummary,
 } from "@/lib/conversation-display";
 
-type InboxPlatform = "EMAIL" | "SLACK";
+type InboxPlatform = "EMAIL";
 type InboxConversationState =
   | "UNASSIGNED"
   | "ACTIVE"
@@ -123,7 +123,6 @@ export type InboxPage = {
 const INBOX_PLATFORM_OPTIONS = new Set<InboxFilters["platform"]>([
   "ALL",
   "EMAIL",
-  "SLACK",
 ]);
 const INBOX_STATE_OPTIONS = new Set<InboxFilters["state"]>([
   "ALL",
@@ -200,6 +199,7 @@ function buildInboxConversationWhere(input: {
 }) {
   const where: Record<string, unknown> = {
     workspaceId: input.workspaceId,
+    platform: "EMAIL",
     deletedAt: null,
     messages: {
       some: {
@@ -208,10 +208,6 @@ function buildInboxConversationWhere(input: {
     },
   };
   const andClauses: Record<string, unknown>[] = [];
-
-  if (input.filters.platform !== "ALL") {
-    where.platform = input.filters.platform;
-  }
 
   if (input.filters.state !== "ALL") {
     where.state = input.filters.state;
@@ -340,7 +336,7 @@ function toInboxRow(record: InboxConversationRecord): InboxRow {
 
   return {
     conversationId: record.id,
-    platform: record.platform,
+    platform: "EMAIL",
     title: buildConversationTitle(record),
     participantSummary: formatParticipantSummary(record.platform, record.participants),
     lastMessagePreview: buildLastMessagePreview(record),
@@ -355,9 +351,7 @@ function toInboxRow(record: InboxConversationRecord): InboxRow {
       (record._count?.approvalRequests ?? 0) > 0 ||
       latestMessage?.status === "PENDING_APPROVAL",
     integrationStatus: record.integration.status,
-    integrationLabel: record.integration.displayName ?? (
-      record.platform === "EMAIL" ? "Gmail" : "Slack"
-    ),
+    integrationLabel: record.integration.displayName ?? "Gmail",
     integrationNeedsAttention:
       record.integration.status === "ERROR" ||
       record.integration.status === "DISCONNECTED" ||

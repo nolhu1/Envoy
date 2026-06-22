@@ -62,11 +62,6 @@ export async function ProductShell({
             active: activeSection === "operator",
           },
           {
-            label: "Integration Ops",
-            href: "/integration-ops",
-            active: activeSection === "operator",
-          },
-          {
             label: "Agent Runs",
             href: "/agent-runs",
             active: activeSection === "operator",

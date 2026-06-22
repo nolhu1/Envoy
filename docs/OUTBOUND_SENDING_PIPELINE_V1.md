@@ -1,4 +1,4 @@
-# Envoy Outbound Sending Pipeline v1
+﻿# Envoy Outbound Sending Pipeline v1
 
 ## Purpose
 
@@ -74,7 +74,6 @@ Purpose:
 
 Examples:
 - Gmail reply payload
-- Slack reply body and thread metadata
 
 Inputs:
 - connector context
@@ -256,7 +255,7 @@ Do not send when:
 - acting user lacks permission
 - workspace ownership does not match
 
-Integration send capability should follow the shared lifecycle contract.  [oai_citation:3‡INTEGRATION_LIFECYCLE_V1.md](sediment://file_00000000686c71f896a517665a3a02c6)
+Integration send capability should follow the shared lifecycle contract.  [oai_citation:3â€¡INTEGRATION_LIFECYCLE_V1.md](sediment://file_00000000686c71f896a517665a3a02c6)
 
 ---
 
@@ -296,7 +295,7 @@ The outbound pipeline must align with the canonical message model.
 
 ### Message direction
 Outbound sends apply to messages where:
-- `direction = OUTBOUND`  [oai_citation:4‡MESSAGE_MODEL_V1.md](sediment://file_00000000732471f5b948eca0d7faeef1)
+- `direction = OUTBOUND`  [oai_citation:4â€¡MESSAGE_MODEL_V1.md](sediment://file_00000000732471f5b948eca0d7faeef1)
 
 ### Message statuses
 Relevant canonical statuses include:
@@ -309,7 +308,7 @@ Relevant canonical statuses include:
 - `FAILED` 
 
 ### Approval requirement
-AI-generated outbound messages must route through approval before send.  [oai_citation:5‡AGENT_TABLES_V1.md](sediment://file_0000000024d471f5b5200b44aed2c6a7)
+AI-generated outbound messages must route through approval before send.  [oai_citation:5â€¡AGENT_TABLES_V1.md](sediment://file_0000000024d471f5b5200b44aed2c6a7)
 
 ### Metadata
 Provider-specific delivery detail belongs in `platform_metadata_json`, not new provider-specific core columns. 
@@ -348,7 +347,7 @@ Examples of downstream events:
 - `message_sent`
 - `approval_approved`
 
-Major send outcomes should remain traceable in audit logs and system events.  [oai_citation:6‡Envoy Development Specifications.txt](sediment://file_00000000305471fbb47e3b1647e7dd6b)
+Major send outcomes should remain traceable in audit logs and system events.  [oai_citation:6â€¡Envoy Development Specifications.txt](sediment://file_00000000305471fbb47e3b1647e7dd6b)
 
 ---
 

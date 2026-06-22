@@ -1,4 +1,4 @@
-# Tenancy Audit Summary
+﻿# Tenancy Audit Summary
 
 ## Surfaces Audited
 
@@ -6,7 +6,6 @@
 - Runtime readers and recovery helpers: runtime jobs, attempts, dead letters, health summaries.
 - Integration operations: connect/reconnect, disconnect, manual sync, Gmail watch renewal.
 - Conversation, message, approval, agent run, and attachment routes/actions.
-- Webhook integration lookups for Slack Events API and Gmail Pub/Sub push.
 
 ## Major Fixes
 

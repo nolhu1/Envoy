@@ -19,14 +19,14 @@ export default async function SignUpPage() {
       <div className="mx-auto grid max-w-5xl gap-10 lg:grid-cols-[0.95fr_1.05fr]">
         <section className="rounded-[32px] bg-slate-950 p-8 text-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] md:p-12">
           <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-300">
-            Phase D1
+            Envoy
           </p>
           <h1 className="mt-6 text-4xl font-semibold tracking-tight md:text-5xl">
             Create an Envoy account.
           </h1>
           <p className="mt-4 max-w-md text-base leading-7 text-slate-300">
-            Sign-up creates one user and one temporary default workspace so the
-            app is usable before invite flows and workspace onboarding land.
+            Create your account and workspace to start managing Gmail
+            conversations, approvals, and agent drafts.
           </p>
         </section>
 

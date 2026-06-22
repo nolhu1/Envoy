@@ -1,4 +1,4 @@
-# Secret Handling Policy
+﻿# Secret Handling Policy
 
 ## Storage
 
@@ -14,7 +14,6 @@
 
 ## Redaction
 
-Use the shared security helpers before logging or rendering diagnostics. Redaction covers OAuth tokens, refresh tokens, bearer auth, cookies, Slack/Gmail tokens, OpenAI keys, and secret-like fields.
 
 ## Logging
 

@@ -30,7 +30,7 @@ export type ApprovalHistoryRow = {
   reviewerId: string | null;
   conversationId: string;
   conversationTitle: string;
-  platform: "EMAIL" | "SLACK";
+  platform: "EMAIL";
   draftMessageId: string;
   draftStatus: string;
   draftPreview: string;
@@ -46,7 +46,7 @@ export type ApprovalHistoryRow = {
 
 function normalizePlatform(value: string | null | undefined) {
   const normalized = value?.toUpperCase();
-  return normalized === "EMAIL" || normalized === "SLACK" ? normalized : null;
+  return normalized === "EMAIL" ? normalized : null;
 }
 
 function dateRange(filters: ApprovalHistoryFilters) {
@@ -69,12 +69,12 @@ function preview(value: string | null) {
 
 function title(conversation: {
   subject: string | null;
-  platform: "EMAIL" | "SLACK";
+  platform: "EMAIL";
   externalConversationId: string;
 }) {
   return (
     conversation.subject?.trim() ||
-    `${conversation.platform === "EMAIL" ? "Gmail" : "Slack"} ${conversation.externalConversationId}`
+    `Gmail ${conversation.externalConversationId}`
   );
 }
 
@@ -102,7 +102,7 @@ export async function listApprovalHistory(input: {
         reviewedByUserId: readOperatorString(filters.reviewerId) ?? undefined,
         conversationId: readOperatorString(filters.conversationId) ?? undefined,
         createdAt: dateRange(filters),
-        conversation: platform ? { platform } : undefined,
+        conversation: { platform: platform ?? "EMAIL" },
       },
       orderBy: [{ createdAt: "desc" }],
       take: parsePositiveLimit(filters.limit, 150, 500),
@@ -210,7 +210,7 @@ export async function listApprovalHistory(input: {
       reviewerId: approval.reviewedByUserId,
       conversationId: approval.conversation.id,
       conversationTitle: title(approval.conversation),
-      platform: approval.conversation.platform,
+      platform: "EMAIL",
       draftMessageId: approval.draftMessageId,
       draftStatus: approval.draftMessage.status,
       draftPreview: preview(

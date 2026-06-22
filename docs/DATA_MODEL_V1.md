@@ -1,4 +1,4 @@
-# Envoy Data Model v1
+﻿# Envoy Data Model v1
 
 ## Purpose
 
@@ -8,7 +8,6 @@ The model is built around a normalized internal conversation layer so that multi
 
 For MVP, the supported source platforms are:
 - Email
-- Slack
 
 The model is designed so that:
 - both platforms map into the same `conversations` table
@@ -224,7 +223,6 @@ Key fields:
 
 ### Platform
 - `EMAIL`
-- `SLACK`
 
 ### IntegrationStatus
 - `PENDING`
@@ -310,12 +308,7 @@ Key fields:
 - plain text body -> `messages.body_text`
 - html body -> `messages.body_html`
 
-### Slack mapping
-- Slack DM or thread key -> `conversations.external_conversation_id`
 - no subject -> `conversations.subject = null`
-- Slack message ID or timestamp -> `messages.external_message_id`
-- Slack user ID -> `participants.external_participant_id`
-- Slack text -> `messages.body_text`
 
 ---
 
@@ -343,7 +336,6 @@ Phase C implementation includes:
 - Prisma schema v1
 - initial migration
 - generated Prisma client
-- seed script with email and Slack demo data
 - schema validation docs
 - model design docs
 
@@ -353,8 +345,6 @@ Phase C implementation includes:
 
 This data model is considered complete for MVP foundation when all of the following are true:
 
-- email and Slack both map into the same `conversations` model
-- email and Slack both map into the same `messages` model
 - no core table is provider-specific
 - AI draft approvals map through `approval_requests`
 - audit history maps through `action_logs`

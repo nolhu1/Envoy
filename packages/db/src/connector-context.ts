@@ -108,7 +108,7 @@ function mapIntegrationToConnectorContext(
   return {
     workspaceId: integration.workspaceId,
     integrationId: integration.id,
-    platform: integration.platform,
+    platform: "EMAIL",
     externalAccountId: integration.externalAccountId,
     config: integration.configJson as JsonValue | null,
     platformMetadataJson: integration.platformMetadataJson as JsonValue | null,
@@ -125,6 +125,7 @@ export async function resolveConnectorContextForWorkspaceIntegration(
     where: {
       id: input.integrationId,
       workspaceId: input.workspaceId,
+      platform: "EMAIL",
       deletedAt: null,
     },
     select: {

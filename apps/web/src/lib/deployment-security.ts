@@ -36,13 +36,6 @@ export function validateProductionSecurityConfig() {
       );
     }
 
-    if (!readEnv("SLACK_CLIENT_ID") || !readEnv("SLACK_CLIENT_SECRET")) {
-      warnOnce(
-        "slack-oauth-config",
-        "[security] Slack OAuth env is incomplete. Slack connect/reconnect will be unavailable.",
-      );
-    }
-
     if (
       readEnv("GMAIL_PUBSUB_TOPIC") &&
       !readEnv("GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL") &&

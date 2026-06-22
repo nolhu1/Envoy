@@ -1,4 +1,4 @@
-# Envoy Workspace Model v1
+﻿# Envoy Workspace Model v1
 
 ## Purpose
 
@@ -54,7 +54,7 @@ This is a temporary MVP onboarding path and may later be replaced with a more ex
 An existing workspace admin can invite another user into the workspace.
 
 The invited user:
-- is created inside the inviter’s workspace
+- is created inside the inviterâ€™s workspace
 - receives one role on entry:
   - `ADMIN`
   - `MEMBER`
@@ -79,14 +79,14 @@ This rule applies to:
 
 ## Workspace Creation Paths
 
-### Path A — Direct sign-up
+### Path A â€” Direct sign-up
 1. user submits sign-up form
 2. system creates workspace
 3. system creates user linked to that workspace
 4. user becomes `ADMIN`
 5. session starts inside that workspace
 
-### Path B — Invite acceptance
+### Path B â€” Invite acceptance
 1. workspace admin creates invite
 2. invited user accepts invite
 3. system creates user inside inviter workspace
@@ -133,7 +133,6 @@ Integrations are always scoped to a workspace.
 
 That means:
 - a Gmail integration belongs to one workspace
-- a Slack integration belongs to one workspace
 - conversations imported through that integration belong to the same workspace
 
 A user from another workspace must never access or send through that integration.

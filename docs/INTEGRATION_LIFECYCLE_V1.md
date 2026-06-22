@@ -1,4 +1,4 @@
-# Envoy Integration Lifecycle v1
+﻿# Envoy Integration Lifecycle v1
 
 ## Purpose
 
@@ -6,7 +6,6 @@ This document defines the lifecycle contract for connector integrations in the E
 
 An integration represents a connected provider account or installation inside a workspace, such as:
 - a Gmail account
-- a Slack workspace/app installation
 
 The lifecycle contract exists so that:
 - all connectors follow the same status model
@@ -268,23 +267,23 @@ Use `status`.
 
 ## Lifecycle Rules
 
-### Rule 1 — Workspace boundary first
-Any lifecycle operation must be executed only within the integration’s owning workspace.
+### Rule 1 â€” Workspace boundary first
+Any lifecycle operation must be executed only within the integrationâ€™s owning workspace.
 
-### Rule 2 — Status drives operational eligibility
+### Rule 2 â€” Status drives operational eligibility
 Inbound sync, webhook processing, and outbound send behavior must check integration status before proceeding.
 
-### Rule 3 — Error is explicit
+### Rule 3 â€” Error is explicit
 If the integration is unhealthy, status must reflect that.
 Do not hide failures inside metadata only.
 
-### Rule 4 — Disconnect preserves history
+### Rule 4 â€” Disconnect preserves history
 Disconnecting an integration must not delete historical conversations or messages already normalized into Envoy.
 
-### Rule 5 — Sync state is operational, not ownership-related
+### Rule 5 â€” Sync state is operational, not ownership-related
 `SYNC_IN_PROGRESS` reflects connector activity, not a different tenancy or permission model.
 
-### Rule 6 — Secret material stays outside metadata JSON
+### Rule 6 â€” Secret material stays outside metadata JSON
 Lifecycle state may reference secret storage indirectly, but tokens and secrets must not be stored in `platform_metadata_json`.
 
 ---
@@ -313,19 +312,19 @@ Lifecycle state may reference secret storage indirectly, but tokens and secrets 
 The product UI should be able to represent integrations consistently using this lifecycle:
 
 ### PENDING
-- “Connecting” or “Setup in progress”
+- â€œConnectingâ€ or â€œSetup in progressâ€
 
 ### CONNECTED
-- “Connected”
+- â€œConnectedâ€
 
 ### SYNC_IN_PROGRESS
-- “Syncing”
+- â€œSyncingâ€
 
 ### ERROR
-- “Needs attention” or “Connection error”
+- â€œNeeds attentionâ€ or â€œConnection errorâ€
 
 ### DISCONNECTED
-- “Disconnected”
+- â€œDisconnectedâ€
 
 The UI should not need provider-specific logic just to understand connector health.
 
@@ -337,6 +336,5 @@ The lifecycle contract is correct only if all of the following are true:
 
 1. Every integration fits one shared status model.
 2. Gmail can use this lifecycle without needing Gmail-only status values.
-3. Slack can use this lifecycle without needing Slack-only status values.
 4. The UI can represent connector health from the shared status field.
 5. A connector can fail auth, recover, sync, and disconnect without changing core conversation logic.

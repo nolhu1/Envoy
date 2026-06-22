@@ -12,7 +12,7 @@ type WriterOptions = {
 };
 
 type JsonObject = Record<string, unknown>;
-type ProviderName = "gmail" | "slack";
+type ProviderName = "gmail";
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -48,26 +48,7 @@ function toDeliveryState(
   return input.deliveryState ?? (input.sendResult.status === "FAILED" ? "FAILED" : "SENT");
 }
 
-function readProviderFromJson(value: unknown) {
-  if (!isJsonObject(value)) {
-    return null;
-  }
-
-  return typeof value.provider === "string" ? value.provider : null;
-}
-
-function toProviderName(envelope: OutboundSendEnvelope): ProviderName {
-  const providerFromConversation = readProviderFromJson(
-    envelope.conversation.platformMetadataJson,
-  );
-  const providerFromContext = readProviderFromJson(
-    envelope.connectorContext.platformMetadataJson,
-  );
-
-  if (providerFromConversation === "slack" || providerFromContext === "slack") {
-    return "slack";
-  }
-
+function toProviderName(_envelope: OutboundSendEnvelope): ProviderName {
   return "gmail";
 }
 

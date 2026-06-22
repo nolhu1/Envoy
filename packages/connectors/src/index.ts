@@ -15,13 +15,6 @@ export {
   GmailConnector,
 } from "./gmail";
 export {
-  SLACK_MVP_BOT_SCOPES,
-  SLACK_MVP_SCOPES,
-  SLACK_MVP_USER_SCOPES,
-  SLACK_PROVIDER,
-  SlackConnector,
-} from "./slack";
-export {
   GMAIL_OAUTH_ACCESS_TYPE,
   GMAIL_OAUTH_AUTH_BASE_URL,
   GMAIL_OAUTH_DEFAULT_STATE_TTL_SECONDS,
@@ -42,44 +35,12 @@ export {
   validateGmailOAuthStatePayload,
 } from "./gmail-oauth";
 export {
-  SLACK_OAUTH_AUTH_BASE_URL,
-  SLACK_AUTH_TEST_URL,
-  SLACK_OAUTH_ACCESS_URL,
-  SLACK_OAUTH_DEFAULT_STATE_TTL_SECONDS,
-  buildSlackAuthorizationUrl,
-  createSlackOAuthStatePayload,
-  decodeAndVerifySlackOAuthState,
-  decodeVerifyAndValidateSlackOAuthState,
-  exchangeSlackAuthorizationCode,
-  fetchSlackWorkspaceIdentity,
-  getSlackOAuthConfig,
-  signAndEncodeSlackOAuthState,
-  validateSlackOAuthStatePayload,
-} from "./slack-oauth";
-export {
-  DEFAULT_SLACK_SIGNATURE_MAX_AGE_SECONDS,
-  SLACK_SIGNATURE_VERSION,
-  SLACK_SIGNING_SECRET_ENV,
-  getSlackSigningSecret,
-  verifySlackRequestSignature,
-} from "./slack-webhook";
-export {
   normalizeGmailAttachmentCandidates,
   normalizeGmailConversationCandidate,
   normalizeGmailMessageCandidate,
   normalizeGmailParticipantCandidates,
   normalizeGmailThread,
 } from "./gmail-normalization";
-export {
-  normalizeSlackAttachmentCandidates,
-  normalizeSlackConversationCandidate,
-  normalizeSlackConversationCandidateFromRaw,
-  normalizeSlackConversationGroups,
-  normalizeSlackConversationSyncItem,
-  normalizeSlackMessageCandidate,
-  normalizeSlackMessageCandidateFromRaw,
-  normalizeSlackParticipantCandidates,
-} from "./slack-normalization";
 export {
   GMAIL_RECENT_SYNC_DEFAULT_MAX_RESULTS,
   GMAIL_RECENT_SYNC_DEFAULT_WINDOW_DAYS,
@@ -105,35 +66,11 @@ export {
   toGmailSyncResult,
 } from "./gmail-sync";
 export {
-  SLACK_CONVERSATIONS_HISTORY_URL,
-  SLACK_CONVERSATIONS_LIST_URL,
-  SLACK_CONVERSATIONS_REPLIES_URL,
-  SLACK_DM_CONVERSATION_TYPES,
-  SLACK_RECENT_SYNC_DEFAULT_CONVERSATION_LIMIT,
-  SLACK_RECENT_SYNC_DEFAULT_MESSAGE_LIMIT,
-  SLACK_RECENT_SYNC_DEFAULT_REPLY_LIMIT,
-  SLACK_RECENT_SYNC_DEFAULT_WINDOW_DAYS,
-  SLACK_RECENT_SYNC_MAX_CONVERSATION_LIMIT,
-  SLACK_RECENT_SYNC_MAX_MESSAGE_LIMIT,
-  SLACK_RECENT_SYNC_MAX_REPLY_LIMIT,
-  SLACK_USERS_INFO_URL,
-  buildSlackRecentDmSyncInput,
-  fetchSlackPrivateFile,
-  fetchSlackRecentDms,
-  toSlackSyncResult,
-} from "./slack-sync";
-export {
   GMAIL_SEND_MESSAGE_URL,
   buildGmailReplyPayload,
   executeGmailSend,
   sendGmailReply,
 } from "./gmail-send";
-export {
-  SLACK_CHAT_POST_MESSAGE_URL,
-  buildSlackReplyPayload,
-  executeSlackSend,
-  sendSlackReply,
-} from "./slack-send";
 export {
   DEDUPE_STATUSES,
   INBOUND_SOURCE_TYPES,
@@ -175,11 +112,6 @@ export type {
   GmailProviderPayloadPlaceholder,
 } from "./gmail";
 export type {
-  SlackConnectorConfig,
-  SlackOAuthInstallCredentialInput,
-  SlackProviderPayloadPlaceholder,
-} from "./slack";
-export type {
   GmailAuthorizationUrlInput,
   GmailAuthorizationUrlResult,
   GmailAccountProfile,
@@ -189,21 +121,7 @@ export type {
   GmailOAuthStatePayload,
   GmailOAuthTokenResponse,
 } from "./gmail-oauth";
-export type {
-  SlackOAuthAccessResponse,
-  SlackAuthorizationUrlInput,
-  SlackAuthorizationUrlResult,
-  SlackOAuthConfig,
-  SlackOAuthExchangeResult,
-  SlackOAuthStatePayload,
-  SlackWorkspaceIdentity,
-} from "./slack-oauth";
-export type {
-  SlackSignatureVerificationResult,
-  VerifySlackRequestSignatureInput,
-} from "./slack-webhook";
 export type { GmailThreadNormalizationResult } from "./gmail-normalization";
-export type { SlackConversationNormalizationResult } from "./slack-normalization";
 export type {
   GmailMessage,
   GmailMessageHeader,
@@ -221,26 +139,10 @@ export type {
   GmailWatchResult,
 } from "./gmail-sync";
 export type {
-  SlackDmConversation,
-  SlackDmConversationSyncItem,
-  SlackDmThread,
-  SlackMessage,
-  SlackMessageFile,
-  SlackRecentDmSyncInput,
-  SlackRecentDmSyncResult,
-  SlackUser,
-  SlackUserProfile,
-} from "./slack-sync";
-export type {
   GmailProviderSendPayload,
   GmailSendApiResponse,
   GmailSendExecutionInput,
 } from "./gmail-send";
-export type {
-  SlackProviderSendPayload,
-  SlackSendApiResponse,
-  SlackSendExecutionInput,
-} from "./slack-send";
 export type {
   ApiKeyAuthMaterial,
   AuthMaterialType,

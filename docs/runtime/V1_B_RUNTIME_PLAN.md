@@ -1,4 +1,4 @@
-# Envoy Durable Runtime Phase V1-B Implementation Plan
+﻿# Envoy Durable Runtime Phase V1-B Implementation Plan
 
 ## Purpose
 
@@ -10,7 +10,6 @@ This plan is based on `docs/EVENT_SCHEMA_V1.md`, the current Prisma schema, conn
 
 - AI must not send autonomously. AI may create drafts and approval requests only.
 - Human approval remains mandatory for AI outbound sends.
-- Connector scope remains the current Gmail and Slack MVP scope.
 - Canonical `Conversation`, `Message`, `ApprovalRequest`, `AgentAssignment`, and `ActionLog` stay intact unless a durable runtime record must reference them.
 - Runtime records are workspace-scoped and append-friendly.
 - Events are replay-safe.
@@ -52,7 +51,6 @@ Current files:
 
 - `apps/web/src/app/settings/workspace/actions.ts`
 - `apps/web/src/lib/gmail-ingestion.ts`
-- `apps/web/src/lib/slack-ingestion.ts`
 - `packages/connectors/src/orchestration.ts`
 - `packages/connectors/src/idempotency-service.ts`
 - `packages/connectors/src/inbound.ts`
@@ -61,10 +59,8 @@ Current files:
 Current behavior:
 
 1. Operator submits `syncIntegrationAction` from workspace settings.
-2. The server action calls `syncWorkspaceGmailIntegration` or `syncWorkspaceSlackIntegration` inline.
 3. The sync function sets integration status to `SYNC_IN_PROGRESS`.
 4. It publishes `integration_sync_started`.
-5. It fetches provider data directly from Gmail or Slack.
 6. Each thread/conversation group runs `runInboundOrchestration`.
 7. Current inbound idempotency is `InMemoryIdempotencyService` scoped to the web process.
 8. Canonical data is written with `createPrismaCanonicalPersistenceWriter`.
@@ -86,7 +82,6 @@ Current files:
 
 - `apps/web/src/app/conversations/[conversationId]/actions.ts`
 - `apps/web/src/lib/gmail-send.ts`
-- `apps/web/src/lib/slack-send.ts`
 - `packages/connectors/src/outbound-orchestration.ts`
 - `packages/connectors/src/outbound.ts`
 - `packages/db/src/outbound-writer.ts`
@@ -94,7 +89,6 @@ Current files:
 Current behavior:
 
 1. Manual reply action creates a canonical outbound `Message` with status `DRAFT`.
-2. The same server action calls `sendWorkspaceGmailReply` or `sendWorkspaceSlackReply` inline.
 3. Send functions load the message, validate provider/integration eligibility, and require approval if an approval request exists and is not approved.
 4. They build provider payload and run `runOutboundOrchestration`.
 5. Current outbound idempotency is `InMemoryIdempotencyService` scoped to the web process.
@@ -118,7 +112,6 @@ Current files:
 - `apps/web/src/lib/approval-queue.ts`
 - `packages/db/src/approval-requests.ts`
 - `apps/web/src/lib/gmail-send.ts`
-- `apps/web/src/lib/slack-send.ts`
 
 Current behavior:
 
@@ -130,7 +123,6 @@ Current behavior:
    - updates conversation state
    - appends `ActionLog`
 3. Approval events are published after the transaction.
-4. On approve or edit-and-approve, `sendApprovedDraftMessage` immediately calls Gmail or Slack send inline.
 5. Rejection publishes `approval_rejected`, which can trigger automatic agent revision inline through the event post-publish hook.
 
 Gaps:
@@ -501,7 +493,6 @@ Scope: `inbound`
 Key shape:
 
 - Gmail thread sync: `gmail:sync:{integrationId}:{threadId}:{historyIdOrLastMessageId}`
-- Slack DM sync: avoid current run-specific key for dedupe. Use `slack:sync:{integrationId}:{conversationId}:{lastMessageExternalId}:{messageCountOrWindowEnd}` or a normalized batch hash. Current `syncRunId` in the key makes repeated sync runs look new and weakens replay safety.
 
 Result summary:
 
@@ -607,7 +598,6 @@ Use Redis/BullMQ. The worker package already depends on `bullmq` and `ioredis`, 
 Job types:
 
 - `gmail.sync_recent`
-- `slack.sync_recent`
 
 Payload:
 
@@ -624,14 +614,12 @@ Producer:
 
 Consumer:
 
-- Calls current `syncWorkspaceGmailIntegration` or `syncWorkspaceSlackIntegration` after extracting the reusable core from web-only dependencies.
 
 ### Queue: `outbound-send`
 
 Job types:
 
 - `gmail.send_reply`
-- `slack.send_reply`
 
 Payload:
 
@@ -759,15 +747,12 @@ Steps:
 
 1. Add `IdempotencyRecord`.
 2. Implement `PrismaIdempotencyService`.
-3. Inject it into Gmail sync, Slack sync, Gmail send, Slack send, and agent trigger flow.
 4. Remove web-local singleton reliance for runtime safety, but tests can still use in-memory service.
-5. Tighten Slack sync key to avoid `syncRunId` making every run unique.
 6. Add durable agent dedupe key before generation starts.
 
 Acceptance criteria:
 
 - Re-running the same Gmail thread ingestion records duplicate/processed and does not emit duplicate `message_received`.
-- Re-running the same Slack conversation ingestion dedupes across sync runs.
 - Retrying an outbound send with completed idempotency does not call provider.
 - Concurrent duplicate agent triggers produce one run and one suppression/duplicate outcome.
 - Existing connector orchestration interfaces remain usable.
@@ -808,7 +793,6 @@ Order:
 
 1. Move sync:
    - `syncIntegrationAction` creates `sync` job and redirects with queued state.
-   - Worker executes Gmail/Slack sync.
    - Integration status and events are updated by worker.
 2. Move automatic agent triggers:
    - Event consumer enqueues `agent.run`.
@@ -876,7 +860,6 @@ Mitigation:
 
 - Durable outbound idempotency key before provider call.
 - Persist provider response immediately after send.
-- Use provider-native idempotency headers if Gmail/Slack support them for the specific endpoint. If not, treat unknown provider outcome as ambiguous and require operator review instead of blind retry.
 - Retry only when failure is known retryable and no external message id was persisted.
 
 ### Duplicate Agent Runs
@@ -960,7 +943,6 @@ Mitigation:
 
 Risk:
 
-- Gmail/Slack rate limits cause repeated fast retries and degraded workspace health.
 
 Mitigation:
 
@@ -1051,9 +1033,7 @@ The biggest risk is duplicate outbound sends from ambiguous provider outcomes. T
 - `apps/worker/src/server.ts`
 - `apps/web/src/lib/event-publisher.ts`
 - `apps/web/src/lib/gmail-ingestion.ts`
-- `apps/web/src/lib/slack-ingestion.ts`
 - `apps/web/src/lib/gmail-send.ts`
-- `apps/web/src/lib/slack-send.ts`
 - `apps/web/src/lib/agent-draft-flow.ts`
 - `apps/web/src/lib/agent-trigger-runtime.ts`
 - `apps/web/src/lib/agent-run-logging.ts`

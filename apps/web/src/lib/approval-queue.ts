@@ -553,10 +553,7 @@ async function queueApprovedDraftSend(input: {
     throw new Error("Approved draft is not in a queueable message state.");
   }
 
-  if (
-    approvalRequest.conversation.platform !== "EMAIL" &&
-    approvalRequest.conversation.platform !== "SLACK"
-  ) {
+  if (approvalRequest.conversation.platform !== "EMAIL") {
     throw new Error("Approved draft platform is not send-capable.");
   }
 
@@ -569,7 +566,7 @@ async function queueApprovedDraftSend(input: {
       conversationId: approvalRequest.conversationId,
       messageId: approvalRequest.draftMessageId,
       integrationId: approvalRequest.conversation.integrationId,
-      platform: approvalRequest.conversation.platform,
+      platform: "EMAIL",
       requestedByUserId: input.actorUserId,
       sendSource: "approval",
       approvalRequestId: approvalRequest.id,

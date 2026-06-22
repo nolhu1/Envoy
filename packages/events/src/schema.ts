@@ -50,7 +50,7 @@ export type EnvoyEntityType =
 export type EnvoyEventType =
   (typeof ENVOY_EVENT_TYPES)[keyof typeof ENVOY_EVENT_TYPES];
 
-export type EnvoyPlatform = "EMAIL" | "SLACK";
+export type EnvoyPlatform = "EMAIL";
 export type JsonPrimitive = boolean | number | string | null;
 export type JsonValue =
   | JsonPrimitive

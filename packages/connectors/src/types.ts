@@ -11,7 +11,7 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type ConnectorPlatform = string;
+export type ConnectorPlatform = "EMAIL";
 
 export type WorkspaceUserRole = "ADMIN" | "MEMBER" | "VIEWER";
 

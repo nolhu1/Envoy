@@ -1,4 +1,4 @@
-# Frontend Gap Audit
+﻿# Frontend Gap Audit
 
 Scope: current Envoy frontend implementation in `apps/web/src/app`. This is an audit only; it does not propose final redesigned screens or implementation changes.
 
@@ -144,7 +144,6 @@ Scope: current Envoy frontend implementation in `apps/web/src/app`. This is an a
 
 - Current agent controls are embedded only at conversation level. Future admin tooling for agent policy, assignment history, run logs, confidence, tool calls, escalation reasons, and replay will not fit inside the current single panel.
 - No shared action log or side rail for operational events.
-- No threading affordance for Slack replies versus Gmail threads beyond platform labels.
 - No room for approvals, send diagnostics, and audit timeline to coexist cleanly with messages.
 
 ### Duplicate UI Patterns to Share
@@ -315,7 +314,6 @@ Scope: current Envoy frontend implementation in `apps/web/src/app`. This is an a
 - Requires `VIEW_WORKSPACE_SETTINGS`.
 - Shows workspace metadata cards.
 - For admins, shows dev-only approval seed and draft preview helpers.
-- For integration managers, shows Gmail and Slack integration management cards with connect/reconnect, resync, disconnect, status summary, diagnostics, and reconnect warning.
 - For audit viewers, shows an operational snapshot with sync failures, send failure rate, worker queue depth, average agent latency, and approval turnaround.
 - Renders URL-param-driven banners for connect, sync, disconnect, test approval, and draft preview outcomes.
 
@@ -641,7 +639,6 @@ Scope: current Envoy frontend implementation in `apps/web/src/app`. This is an a
 
 ## Screenshot Inventory
 
-Capture both data-rich and empty/error variants where possible. Use seeded data that includes Gmail, Slack, assigned/unassigned conversations, pending approvals, reviewed approvals, send failures, integration errors, members, and invites.
 
 | Major page | Route | Purpose | Screenshot needed | Viewport size to capture | Notes on what to inspect |
 | --- | --- | --- | --- | --- | --- |
@@ -649,7 +646,6 @@ Capture both data-rich and empty/error variants where possible. Use seeded data 
 | Inbox empty/filtered | `/` with filters that produce zero results | Empty state for no matching conversations. | Empty queue under active filters. | Desktop `1440x900`, mobile `390x844`. | Verify copy distinguishes filtered-zero from no-data; check filter form height and reset visibility. |
 | Conversation thread | `/conversations/[conversationId]` | Read one canonical conversation, manage assignment, run agent, and send manual reply. | Thread with active agent, trigger rules, recent send failure, attachments, and long messages. | Desktop `1440x1200`, tablet `834x1112`, mobile `390x1200`. | Inspect banner stacking, header pill wrapping, agent controls before messages, form height, message card readability, attachment affordances, and long IDs on mobile. |
 | Conversation thread without assignment | `/conversations/[conversationId]` | Thread state where Run Agent is disabled. | No active assignment, disabled Run Agent, no messages or short message list if available. | Desktop `1440x1000`, mobile `390x844`. | Inspect disabled reason, empty assignment state, permission text if captured as non-admin, and how quickly messages are reachable. |
-| Approvals queue pending | `/approvals` | Pending human review queue. | Pending approvals with Gmail/Slack rows and varied draft lengths. | Desktop `1440x1000`, tablet `834x1112`, mobile `390x844`. | Inspect queue row density, pending/reviewed toggle, mobile stacked row labels, draft preview wrapping, count copy, role pill, and lack of pagination. |
 | Approvals queue reviewed | `/approvals?view=reviewed` | Recently reviewed approvals. | Reviewed list with approved and rejected items. | Desktop `1440x1000`, mobile `390x844`. | Inspect whether copy still says ready for review, status hierarchy, timestamp column, and empty reviewed state. |
 | Approval detail pending | `/approvals/[approvalRequestId]` | Review one generated draft. | Pending approval with long draft, recent context, approve/edit/reject forms. | Desktop `1440x1200`, tablet `834x1112`, mobile `390x1200`. | Inspect decision hierarchy, reject placement, context sidebar readability, form height, draft versus context distinction, and mobile order. |
 | Approval detail reviewed | `/approvals/[approvalRequestId]` | Reviewed approval outcome and rejected revision flow. | Approved detail and rejected detail with reviewer feedback/revise form. | Desktop `1440x1200`, mobile `390x1200`. | Inspect outcome status durability, revise form hierarchy, metadata wrapping, recent context empty/non-empty cases, and send-failed banner if available. |

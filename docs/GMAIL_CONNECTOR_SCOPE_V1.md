@@ -1,10 +1,9 @@
-# Envoy Gmail Connector Scope v1
+﻿# Envoy Gmail Connector Scope v1
 
 ## Purpose
 
 This document locks the first real email connector scope for the Envoy MVP.
 
-Envoy will ship email before Slack.
 For MVP, Envoy will support one concrete email provider path first:
 - Gmail API only
 

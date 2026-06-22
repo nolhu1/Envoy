@@ -1,11 +1,11 @@
-# Envoy RBAC Policy v1
+﻿# Envoy RBAC Policy v1
 
 ## Purpose
 
 This document defines the role-based access control policy for the Envoy MVP.
 
 Envoy is workspace-scoped.
-Permissions apply only within the user’s current workspace.
+Permissions apply only within the userâ€™s current workspace.
 
 RBAC decisions must be enforced in:
 - server-rendered pages
@@ -34,7 +34,7 @@ A role check is never enough by itself.
 
 A user may perform an action only if both are true:
 1. the resource belongs to `session.user.workspaceId`
-2. the user’s role permits the action
+2. the userâ€™s role permits the action
 
 ---
 
@@ -43,7 +43,6 @@ A user may perform an action only if both are true:
 ### 1. Connect integrations
 Description:
 - connect Gmail
-- connect Slack
 - disconnect integrations
 - resync integrations
 - view integration management settings
@@ -177,20 +176,20 @@ Allowed roles:
 
 ## Enforcement Rules
 
-### Rule 1 — Workspace boundary first
+### Rule 1 â€” Workspace boundary first
 Before any role check, confirm the current user belongs to the same workspace as the resource.
 
-### Rule 2 — Server-side enforcement required
+### Rule 2 â€” Server-side enforcement required
 RBAC must be enforced on the server.
 UI hiding is not sufficient.
 
-### Rule 3 — Deny by default
+### Rule 3 â€” Deny by default
 If an action is not explicitly allowed for a role, deny it.
 
-### Rule 4 — Viewer is read-only
+### Rule 4 â€” Viewer is read-only
 VIEWER must not be able to mutate workspace data.
 
-### Rule 5 — Admin-only workspace management
+### Rule 5 â€” Admin-only workspace management
 Workspace-level management actions are admin-only in MVP.
 
 ---

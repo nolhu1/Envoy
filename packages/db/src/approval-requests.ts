@@ -144,7 +144,7 @@ export type ApprovalQueueParticipant = {
 
 export type ApprovalQueueConversationSummary = {
   id: string;
-  platform: "EMAIL" | "SLACK";
+  platform: "EMAIL";
   subject: string | null;
   state: ConversationState;
   lastMessageAt: Date | null;
@@ -382,7 +382,7 @@ function toApprovalQueueMessageSummary(input: {
 
 function toApprovalQueueConversationSummary(input: {
   id: string;
-  platform: "EMAIL" | "SLACK";
+  platform: string;
   subject: string | null;
   state: ConversationState;
   lastMessageAt: Date | null;
@@ -400,9 +400,13 @@ function toApprovalQueueConversationSummary(input: {
     isActive: boolean;
   } | null;
 }): ApprovalQueueConversationSummary {
+  if (input.platform !== "EMAIL") {
+    throw new Error("Approval queue only supports Gmail conversations.");
+  }
+
   return {
     id: input.id,
-    platform: input.platform,
+    platform: "EMAIL",
     subject: input.subject,
     state: input.state,
     lastMessageAt: input.lastMessageAt,
@@ -425,7 +429,7 @@ function toApprovalQueueListItem(input: {
   editedContent: string | null;
   conversation: {
     id: string;
-    platform: "EMAIL" | "SLACK";
+    platform: string;
     subject: string | null;
     state: ConversationState;
     lastMessageAt: Date | null;
@@ -564,12 +568,18 @@ function buildApprovalQueueWhere(input: ApprovalQueueListInput) {
   if (filter === "ALL") {
     return {
       workspaceId: input.workspaceId,
+      conversation: {
+        platform: "EMAIL",
+      },
     };
   }
 
   if (filter === "RECENTLY_REVIEWED") {
     return {
       workspaceId: input.workspaceId,
+      conversation: {
+        platform: "EMAIL",
+      },
       status: {
         in: [
           APPROVAL_REQUEST_STATUSES.APPROVED,
@@ -589,6 +599,9 @@ function buildApprovalQueueWhere(input: ApprovalQueueListInput) {
   return {
     workspaceId: input.workspaceId,
     status: APPROVAL_REQUEST_STATUSES.PENDING,
+    conversation: {
+      platform: "EMAIL",
+    },
   };
 }
 
@@ -688,6 +701,9 @@ export async function getApprovalRequestDetail(
     where: {
       id: input.approvalRequestId,
       workspaceId: input.workspaceId,
+      conversation: {
+        platform: "EMAIL",
+      },
     },
     select: {
       id: true,
@@ -837,6 +853,7 @@ export async function createApprovalRequestForAgentDraft(
       where: {
         id: input.conversationId,
         workspaceId: input.workspaceId,
+        platform: "EMAIL",
         deletedAt: null,
       },
       select: {
@@ -888,7 +905,7 @@ export async function createApprovalRequestForAgentDraft(
       data: {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
-        platform: conversation.platform,
+        platform: "EMAIL",
         senderType: "AGENT",
         direction: "OUTBOUND",
         bodyText,
@@ -1041,6 +1058,9 @@ export async function createRevisedApprovalRequestFromRejectedApproval(
       where: {
         id: input.approvalRequestId,
         workspaceId: input.workspaceId,
+        conversation: {
+          platform: "EMAIL",
+        },
       },
       select: {
         id: true,
@@ -1162,7 +1182,7 @@ export async function createRevisedApprovalRequestFromRejectedApproval(
       data: {
         workspaceId: input.workspaceId,
         conversationId: sourceApprovalRequest.conversationId,
-        platform: sourceApprovalRequest.conversation.platform,
+        platform: "EMAIL",
         senderType: "AGENT",
         direction: "OUTBOUND",
         bodyText: revisedBodyText,
