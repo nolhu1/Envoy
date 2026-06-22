@@ -1,10 +1,22 @@
 {
   "name": "Envoy",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "Envoy is a Gmail-first support inbox and agent-assist workspace built as a pnpm monorepo.",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "db:start": "docker compose -f infra/docker/docker-compose.yml up -d postgres redis",
+    "db:stop": "docker compose -f infra/docker/docker-compose.yml down",
+    "db:generate": "pnpm --filter @envoy/db prisma:generate",
+    "db:migrate": "pnpm --filter @envoy/db exec prisma migrate deploy --schema prisma/schema.prisma",
+    "db:prepare": "pnpm db:generate && pnpm db:migrate",
+    "dev": "pnpm -r --parallel --filter web --filter worker run dev",
+    "dev:web": "pnpm --filter web dev",
+    "dev:worker": "pnpm --filter worker dev",
+    "lint": "pnpm --filter web lint",
+    "typecheck": "pnpm --filter web exec tsc --noEmit -p tsconfig.json && pnpm --filter worker typecheck",
+    "build": "pnpm --filter web build",
+    "test": "node --test tests/regression/*.test.mjs",
+    "test:regression": "node --test tests/regression/*.test.mjs"
   },
   "keywords": [],
   "author": "",
